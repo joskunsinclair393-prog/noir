@@ -1,0 +1,159 @@
+# NOIR
+
+NOIR is an open-source chat app with a Node.js backend. It can use Google Gemini or OpenAI, supports required account sign-in for a public deployment, keeps chats separated by account, and keeps provider keys out of browser code.
+
+## Requirements
+
+- Node.js 20 or newer
+- For AI replies, an API key from the provider you choose
+- For a public website, a Supabase project and credentials for the sign-in providers you enable
+
+The project uses Node’s built-in libraries, so it has no third-party packages to install.
+
+## Start NOIR
+
+On macOS, double-click **`Start NOIR.command`** in the project folder. It creates `.env` from the template if needed, starts the local server, and opens the browser. Keep the Terminal window open while using NOIR; press **Ctrl+C** there to stop the server. The template requires account sign-in, so you’ll need to configure Supabase first. To use a private local demo without accounts, set `AUTH_REQUIRED=false` in `.env`.
+
+You can also start it manually:
+
+1. Open Terminal and go to the project folder. For example:
+
+   ```sh
+   cd ~/Downloads/noir_chat
+   ```
+
+2. Create your private settings file:
+
+   ```sh
+   cp .env.example .env
+   ```
+
+   On Windows PowerShell, use `Copy-Item .env.example .env`.
+
+3. Open `.env` in a text editor. Choose a provider and model. For a public website, also add the Supabase project URL and public anon key. Leave `ALLOW_BILLABLE_REQUESTS=false` until you have checked the provider’s pricing and account settings.
+
+4. Start the app:
+
+   ```sh
+   npm start
+   ```
+
+5. Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
+
+Stop the server with **Ctrl+C** in Terminal.
+
+## Choose an AI provider
+
+The website does not need redesigning to switch providers. Change `AI_PROVIDER`, `AI_MODEL`, and the matching key in `.env`, then restart the server.
+
+### Google Gemini
+
+Set:
+
+```dotenv
+AI_PROVIDER=gemini
+AI_MODEL=gemini-3.8-flash
+GEMINI_API_KEY=your_key_here
+OPENAI_API_KEY=
+```
+
+Create a key in [Google AI Studio](https://aistudio.google.com/apikey). Google offers free usage for some models and accounts, but availability and quotas vary. Check the model’s current [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing) and your project’s usage limits before enabling requests.
+
+### OpenAI
+
+Set:
+
+```dotenv
+AI_PROVIDER=openai
+AI_MODEL=your-chosen-model
+OPENAI_API_KEY=your_key_here
+GEMINI_API_KEY=
+```
+
+Create an API key in the [OpenAI API platform](https://platform.openai.com/api-keys). API access and ChatGPT subscriptions are separate. OpenAI API requests may incur charges; check the current [API pricing](https://developers.openai.com/api/docs/pricing) for the model you select.
+
+### Explicitly enable provider requests
+
+NOIR starts with provider requests disabled. After you have reviewed the selected model, its price, and your account’s billing state, set:
+
+```dotenv
+ALLOW_BILLABLE_REQUESTS=true
+```
+
+This only allows NOIR to send API requests. It does **not** create a paid account, add a payment method, or enable billing with Google or OpenAI. If the provider account has billing enabled, usage may be charged under that provider’s terms. The project does not change provider account settings.
+
+## Token usage and credits
+
+- NOIR reads input and output token counts from the selected provider’s response metadata. The total and per-message counts are shown in the interface.
+- Credits are a separate, optional NOIR limit. With the example settings, a new browser session starts with 100 credits and a successful response costs 1 credit. Failed responses do not spend credits.
+- Change `ENABLE_CREDITS`, `STARTING_CREDITS`, and `CREDITS_PER_MESSAGE` in `.env` to adjust this. Credit values and token totals are stored and updated by the server; the browser cannot submit a replacement balance.
+
+## Accounts and social sign-in
+
+The example `.env` requires a verified account for chat APIs. NOIR uses Supabase Auth for account registration and sign-in. The welcome screen offers email/password, Google, Apple, and GitHub. The sign-in provider buttons work after you enable and configure the matching providers in your Supabase project; the provider's OAuth client secrets stay in Supabase and are never added to this app.
+
+1. Create a Supabase project. Run [`supabase/schema.sql`](supabase/schema.sql) in its SQL Editor. Copy the Project URL, public anon/publishable key, and service-role key into `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` in `.env` or your host's private environment settings. The service-role key is server-only; never put it in browser code or publish it.
+2. In Supabase Auth, set your public website as the Site URL and add both your public URL and `http://127.0.0.1:3000/**` to the redirect URL allow list.
+3. Enable Email and the social providers you want in the Supabase Auth provider settings. Add the required OAuth client ID and secret from Google, Apple, or GitHub in the provider's settings. Follow Supabase's provider-specific callback instructions. Apple web sign-in also requires Apple Developer configuration and periodic secret rotation.
+4. Keep `AUTH_REQUIRED=true`. NOIR verifies each account with Supabase on the backend before it reads or changes chats. The backend only returns the Supabase URL and public key to the browser; it never returns a service-role key.
+5. For public email registration, configure a production email/SMTP provider in Supabase so account verification messages can reach users.
+
+Supabase's [Google sign-in guide](https://supabase.com/docs/guides/auth/social-sign-in/auth-google), [Apple sign-in guide](https://supabase.com/docs/guides/auth/social-sign-in/auth-apple), and [PKCE flow documentation](https://supabase.com/docs/guides/auth/sessions/pkce-flow) explain provider callback and redirect configuration. The app uses the authorization-code PKCE flow for social sign-in.
+
+## Public deployment
+
+The project includes a `render.yaml` Blueprint for a small free web service in Singapore. To publish it:
+
+1. Create a Supabase project on a plan you choose and run [`supabase/schema.sql`](supabase/schema.sql) in its SQL Editor.
+2. Configure Supabase Auth, the site URL, allowed redirects, and the Email/Google/Apple/GitHub providers you want to offer. Social providers require OAuth credentials from the matching provider's developer settings.
+3. Publish this repository to GitHub, then open Render's Blueprint flow and select the repository. Render will prompt for the Supabase URL, public anon key, and private service-role key. Enter them in Render's secret fields; don't commit them.
+4. Verify the app starts and that account registration works. AI requests stay blocked until you separately add a provider key and opt in to provider requests.
+
+The free Render service sleeps after inactivity, so the first page load after a quiet period can be slow. Supabase Free projects may also pause after a week without activity. These free tiers have usage limits and are suitable for getting started, not a promise of uninterrupted production service.
+
+When `SUPABASE_SERVICE_ROLE_KEY` is configured, account data is saved in the private `noir_user_data` database table; otherwise, the included JSON store needs a persistent disk. Keep a single server instance so the in-memory rate limits and account locks are shared.
+
+NOIR does not deploy itself or create a public website account. You choose and configure the source-code host, app host, domain, Supabase project, and provider accounts. Hosting services, domains, OAuth accounts, email delivery, and AI APIs may have charges. Review the prices before enabling anything paid. AI generation stays blocked until `ALLOW_BILLABLE_REQUESTS=true`; that setting may result in provider charges when a user chats. The public server also has a shared rate limit (`MAX_PUBLIC_REQUESTS_PER_MINUTE`, default 20) and per-account message limit, but those limits do not guarantee a maximum bill.
+
+## Chats and local data
+
+Chat history, token usage, and credit balances are saved in `data/noir-data.json`, keyed by the signed-in account when `AUTH_REQUIRED=true`. In local demo mode, the browser receives an HttpOnly session cookie instead. The server listens on `127.0.0.1` by default unless `HOST` is changed for deployment.
+
+Each account receives its own chats and starting credits. Clearing browser sign-in storage requires signing in again; it does not erase the server-side account data. This version uses a JSON file for chat persistence and is intended for one server instance. A larger public service should move chat storage to a managed database and add account deletion and abuse monitoring.
+
+The connector and plugin menus, and file selection controls, are still interface previews. This version sends typed text to the AI provider; it does not upload file contents or connect third-party services.
+
+If you open `index.html` by double-clicking it, the browser uses a `file://` address and cannot reach the Node backend. Start NOIR with `Start NOIR.command` or `npm start`, then use the `http://127.0.0.1:3000` address.
+
+## Files
+
+- `index.html` — NOIR chat interface
+- `styles.css` — dark and light themes, responsive layout
+- `script.js` — browser UI and same-origin API calls
+- `server.js` — Node server, Gemini/OpenAI adapters, account sign-in checks, chats, usage and credits
+- `supabase/schema.sql` — private PostgreSQL table for durable account data
+- `render.yaml` — free Render web service Blueprint
+- `.env.example` — safe configuration template (copy to `.env`)
+- `.gitignore` — excludes `.env` and local server data
+- `Start NOIR.command` — macOS one-click local server launcher
+- `logo.svg` — NOIR logo
+- `LICENSE` — MIT open-source license
+- `test/` — provider and backend tests using mocked provider responses
+
+## Run tests
+
+```sh
+npm test
+```
+
+Tests use mock Gemini/OpenAI responses, so they do not need API keys and do not use provider credits. A live AI request can only be checked after you configure your own key and explicitly enable requests.
+
+## ZIP the project
+
+From the project folder, run:
+
+```sh
+zip -r NOIR.zip index.html styles.css script.js server.js package.json .env.example .gitignore README.md LICENSE "Start NOIR.command" logo.svg logo.svg.png supabase test
+```
+
+The command excludes your private `.env`, local chat database, and `.git` history.
