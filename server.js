@@ -199,6 +199,24 @@ function currentDateForTimeZone(timeZone) {
   return `${values.weekday}, ${values.year}-${values.month}-${values.day}`;
 }
 
+function systemInstructions(timeZone) {
+  return `Helpful, accurate, concise assistant. Admit uncertainty. Today in ${timeZone}: ${currentDateForTimeZone(timeZone)}. Use for date questions.`;
+}
+
+function dateKeyForTimeZone(timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function dailyTokenUsage(data) {
+  const today = dateKeyForTimeZone('UTC');
+  const saved = data.dailyTokenUsage;
+  return saved?.date === today && Number.isFinite(saved.tokens)
+    ? { date: today, tokens: Math.max(0, Math.floor(saved.tokens)) }
+    : { date: today, tokens: 0 };
+}
+
 function publicError(error) {
   if (error instanceof ProviderError) {
     if (error.status === 429) return { status: 429, message: 'The AI provider rate limit was reached. Please try again shortly.', code: 'provider_rate_limit' };
@@ -227,6 +245,7 @@ export function createNoirServer(options = {}) {
     creditsPerMessage: integer(env.creditsPerMessage ?? process.env.CREDITS_PER_MESSAGE, 1, 1),
     unlimitedAccessEmails: new Set(String(env.unlimitedAccessEmails ?? process.env.UNLIMITED_ACCESS_EMAILS ?? '').split(',').map(email => email.trim().toLowerCase()).filter(Boolean)),
     maxOutputTokens: integer(env.maxOutputTokens ?? process.env.MAX_OUTPUT_TOKENS, 1024, 64),
+    dailyTokenLimit: integer(env.dailyTokenLimit ?? process.env.MAX_DAILY_TOKENS, 50, 1),
     reasoningEffort: String(env.reasoningEffort ?? process.env.OPENAI_REASONING_EFFORT ?? ''),
     maxRequestsPerMinute: integer(env.maxRequestsPerMinute ?? process.env.MAX_REQUESTS_PER_MINUTE, 12, 1),
     maxPublicRequestsPerMinute: integer(env.maxPublicRequestsPerMinute ?? process.env.MAX_PUBLIC_REQUESTS_PER_MINUTE, 20, 1),
@@ -398,8 +417,12 @@ export function createNoirServer(options = {}) {
   }
 
   function sessionSummary(data, user = null) {
+    const daily = dailyTokenUsage(data);
     return {
       usage: data.usage,
+      dailyTokens: daily.tokens,
+      dailyTokenLimit: config.dailyTokenLimit,
+      dailyTokenDate: daily.date,
       creditsEnabled: Boolean(config.creditsEnabled),
       credits: config.creditsEnabled ? data.credits : null,
       creditsUnlimited: hasUnlimitedAccess(user),
@@ -418,12 +441,12 @@ export function createNoirServer(options = {}) {
     try { return new URL(origin).host === request.headers.host; } catch { return false; }
   }
 
-  async function generate(messages, timeZone = 'UTC') {
+  async function generate(messages, timeZone = 'UTC', maxOutputTokens = config.maxOutputTokens) {
     const args = {
       model: config.model,
       messages,
-      instructions: `You are NOIR, a helpful, thoughtful AI assistant. Give accurate, clear answers with natural conversation. If you are unsure, say so. Use concise structure when it helps. The current date in the user's local timezone (${timeZone}) is ${currentDateForTimeZone(timeZone)}. When asked for today's date or current day, use this date.`,
-      maxOutputTokens: config.maxOutputTokens,
+      instructions: systemInstructions(timeZone),
+      maxOutputTokens,
       reasoningEffort: config.reasoningEffort,
       fetchImpl: options.fetchImpl || fetch,
     };
@@ -467,6 +490,7 @@ export function createNoirServer(options = {}) {
         const getSession = (req, res) => config.authRequired ? authenticatedSessionFor(accountUser) : Promise.resolve(sessionFor(req, res));
         if (request.method === 'GET' && url.pathname === '/api/bootstrap') {
           const { data, user } = await getSession(request, response);
+          const timeZone = resolveTimeZone(url.searchParams.get('timeZone'));
           return sendJson(response, 200, { session: sessionSummary(data, user), user: user ? { email: user.email } : null, chats: data.chats.map(chatSummary).sort((a, b) => b.updatedAt - a.updatedAt) });
         }
         if (request.method === 'GET' && url.pathname.startsWith('/api/chats/')) {
@@ -505,6 +529,11 @@ export function createNoirServer(options = {}) {
               if (!providerInfo().keyConfigured) await generate([]);
             }
             const unlimitedAccess = hasUnlimitedAccess(user);
+            const daily = dailyTokenUsage(data);
+            const remainingTokens = config.dailyTokenLimit - daily.tokens;
+            if (remainingTokens <= 0) {
+              throw Object.assign(new Error(`You’ve used today’s ${config.dailyTokenLimit} token limit. It resets at midnight UTC.`), { status: 429, code: 'daily_token_limit' });
+            }
             if (config.creditsEnabled && !unlimitedAccess && data.credits < config.creditsPerMessage) {
               throw Object.assign(new Error('You’re out of NOIR credits. Add credits or turn off the optional credit limit in .env.'), { status: 402, code: 'insufficient_credits' });
             }
@@ -521,7 +550,14 @@ export function createNoirServer(options = {}) {
               history.unshift({ role: item.role, text: itemText });
               historyCharacters += itemText.length;
             }
-            const generated = await generate(history, timeZone);
+            const instructions = systemInstructions(timeZone);
+            const inputCharacters = instructions.length + history.reduce((count, item) => count + item.text.length, 0);
+            const estimatedInputTokens = Math.ceil(inputCharacters / 3) + history.length * 2;
+            const outputBudget = remainingTokens - estimatedInputTokens;
+            if (outputBudget < 1) {
+              throw Object.assign(new Error(`Your remaining daily token budget is too small for that prompt. The ${config.dailyTokenLimit} token limit resets at midnight UTC.`), { status: 429, code: 'daily_token_limit' });
+            }
+            const generated = await generate(history, timeZone, Math.min(config.maxOutputTokens, outputBudget));
             const usage = normalizedUsage(generated.usage || {});
             if (!generated.text || !usage.inputTokens && !usage.outputTokens) throw Object.assign(new Error('The provider did not return a response with token usage.'), { status: 502, code: 'invalid_provider_response' });
             chat.title = chat.messages.length ? chat.title : (message.replace(/\s+/g, ' ').slice(0, 42) || 'New chat');
@@ -533,6 +569,7 @@ export function createNoirServer(options = {}) {
             data.usage.inputTokens += usage.inputTokens;
             data.usage.outputTokens += usage.outputTokens;
             data.usage.totalTokens += usage.totalTokens;
+            data.dailyTokenUsage = { date: daily.date, tokens: daily.tokens + usage.totalTokens };
             if (config.creditsEnabled && !unlimitedAccess) data.credits -= config.creditsPerMessage;
             if (config.authRequired) await persistAccountData(accountUser.id, data);
             else saveStore();
