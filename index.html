@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#080808">
+<title>NOIR — AI Chat</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="auth-gate" id="authGate" hidden>
+  <section class="auth-card" aria-labelledby="authTitle">
+    <img src="logo.svg" alt="" class="auth-logo">
+    <div class="auth-eyebrow">A space for anything</div>
+    <h1 id="authTitle">Welcome to NOIR</h1>
+    <p class="auth-intro">Sign in or create an account to start chatting.</p>
+    <div class="auth-providers">
+      <button type="button" class="auth-provider" data-oauth="google"><span class="google-mark" aria-hidden="true">G</span>Continue with Google</button>
+      <button type="button" class="auth-provider" data-oauth="apple"><span class="apple-mark" aria-hidden="true">●</span>Continue with Apple</button>
+      <button type="button" class="auth-provider" data-oauth="github"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 1.5a10.5 10.5 0 0 0-3.32 20.46c.52.1.72-.22.72-.5v-1.9c-2.93.64-3.55-1.24-3.55-1.24-.48-1.22-1.17-1.55-1.17-1.55-.96-.66.07-.65.07-.65 1.06.07 1.62 1.09 1.62 1.09.94 1.61 2.47 1.15 3.07.88.1-.68.37-1.15.67-1.42-2.34-.27-4.8-1.17-4.8-5.2 0-1.15.41-2.08 1.08-2.81-.11-.27-.47-1.34.1-2.78 0 0 .88-.28 2.89 1.07A10.1 10.1 0 0 1 12 6.6c.89 0 1.78.12 2.62.35 2.01-1.35 2.89-1.07 2.89-1.07.57 1.44.21 2.51.1 2.78.67.73 1.08 1.66 1.08 2.81 0 4.04-2.46 4.93-4.81 5.2.38.33.72.97.72 1.95v2.84c0 .28.19.6.73.5A10.5 10.5 0 0 0 12 1.5Z"/></svg>Continue with GitHub</button>
+    </div>
+    <div class="auth-divider"><span>or continue with email</span></div>
+    <form id="authForm" class="auth-form">
+      <label for="authEmail">Email</label>
+      <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" required>
+      <label for="authPassword">Password</label>
+      <input id="authPassword" type="password" autocomplete="current-password" placeholder="At least 8 characters for a new account" required>
+      <button type="submit" class="auth-submit" id="authSubmit">Sign in</button>
+    </form>
+    <div class="auth-mode">New to NOIR? <button type="button" id="authModeToggle">Create an account</button></div>
+    <p class="auth-feedback" id="authFeedback" role="status" aria-live="polite"></p>
+    <p class="auth-terms">By continuing, you agree to use NOIR responsibly. Your chats are private to your account.</p>
+  </section>
+</main>
+<div class="app">
+  <aside class="sidebar">
+    <button type="button" class="brand home-button" id="homeButton" aria-label="Go to the NOIR home page"><img class="logo" src="logo.svg" alt=""><span>NOIR</span></button>
+    <button class="newchat" id="newChat">＋ &nbsp; New chat</button>
+    <div class="side-label">Your chats</div>
+    <div class="chat-history" id="chatHistory" aria-label="Saved chats"></div>
+    <div class="side-note history-empty" id="historyEmpty">Your saved chats will appear here.</div>
+    <div class="side-bottom">Minimal by design.<br>Made to keep your thoughts moving.</div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-leading"><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Hide sidebar" title="Hide sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button><button type="button" class="model home-button" id="homeButtonTop" aria-label="Go to the NOIR home page"><img class="logo" src="logo.svg" alt="">NOIR <span>· Assistant</span></button></div>
+      <div class="topbar-actions">
+        <span class="account-email" id="accountEmail" hidden></span><button class="signout-button" type="button" id="signOut" hidden>Sign out</button>
+        <div class="provider-label" id="providerLabel">AI setup required</div>
+        <div class="usage-pill" aria-label="Token usage"><div><b id="tokenTotal">0</b><span>tokens</span></div><small><span id="inputTokenTotal">0</span> in · <span id="outputTokenTotal">0</span> out</small></div>
+        <div class="credits-pill" id="creditsPanel" hidden><b id="creditBalance">0</b><span>credits</span></div>
+        <button class="settings-trigger" id="settingsTrigger" aria-label="Settings" title="Settings">⚙</button>
+      </div>
+    </header>
+    <div class="app-notice" id="appNotice" role="status" hidden></div>
+    <section class="chat">
+      <div class="welcome" id="welcome">
+        <img class="welcome-logo" src="logo.svg" alt="">
+        <div class="eyebrow">A space for anything</div>
+        <h1>What’s on your mind?</h1>
+        <p>Ask a question, explore an idea, or start creating something.</p>
+        <div class="suggestions">
+          <button class="suggestion" data-prompt="Help me come up with a creative project idea."><b>✳ &nbsp; Brainstorm</b>Find a fresh idea to explore</button>
+          <button class="suggestion" data-prompt="Explain a difficult topic in simple terms."><b>◈ &nbsp; Learn something</b>Make a tricky topic easier</button>
+          <button class="suggestion" data-prompt="Help me write a clear, engaging message."><b>✎ &nbsp; Write</b>Turn a rough idea into words</button>
+          <button class="suggestion" data-prompt="Help me plan a project step by step."><b>▤ &nbsp; Make a plan</b>Break a goal into steps</button>
+        </div>
+      </div>
+      <div class="messages" id="messages" aria-live="polite"></div>
+    </section>
+    <div class="composer-wrap">
+      <div class="composer">
+        <textarea id="prompt" rows="1" placeholder="Message NOIR..." aria-label="Message NOIR"></textarea>
+        <div class="attachments" id="attachments" aria-live="polite"></div>
+        <div class="composer-foot">
+          <div class="composer-actions">
+            <div class="attach-wrap">
+              <button class="attach" id="attachButton" aria-label="Add attachments" aria-haspopup="menu" aria-expanded="false" title="Add attachments">＋</button>
+              <div class="attach-menu" id="attachMenu" role="menu" aria-label="Add to message" hidden>
+                <button type="button" role="menuitem" id="chooseFiles"><span class="menu-icon">↥</span><span><b>Files</b><small>Upload documents and other files</small></span></button>
+                <button type="button" role="menuitem" id="chooseImages"><span class="menu-icon">▧</span><span><b>Photos</b><small>Add images to your message</small></span></button>
+                <div class="menu-divider"></div>
+                <button type="button" role="menuitem" class="menu-destination" data-open-settings="connectors"><span class="menu-icon">⤴</span><span><b>Connectors</b><small>Browse connected services</small></span><span class="menu-chevron">›</span></button>
+                <button type="button" role="menuitem" class="menu-destination" data-open-settings="plugins"><span class="menu-icon">✳</span><span><b>Plugins</b><small>Choose tools for your chats</small></span><span class="menu-chevron">›</span></button>
+              </div>
+              <input id="fileInput" type="file" multiple hidden>
+              <input id="imageInput" type="file" accept="image/*" multiple hidden>
+            </div>
+            <span class="hint">Enter to send · Shift + Enter for a new line</span>
+          </div>
+          <button class="send" id="send" aria-label="Send message">↑</button>
+        </div>
+      </div>
+      <div class="disclaimer">Your API keys stay on this server. Token counts come from the selected AI provider.</div>
+    </div>
+  </main>
+</div>
+<svg class="logo-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="logo-drive" viewBox="0 0 32 32"><path fill="#00832d" d="M9 4h8L6 23H0z"/><path fill="#0066da" d="M4 23h23l-4 6H1z"/><path fill="#ffba00" d="M17 4 31 27h-8L9 4z"/></symbol>
+  <symbol id="logo-dropbox" viewBox="0 0 32 32"><path fill="#0061ff" d="m9 4 7 5-7 5-7-5zm14 0 7 5-7 5-7-5zM9 15l7 5-7 5-7-5zm14 0 7 5-7 5-7-5zM16 22l7 5-7 5-7-5z"/></symbol>
+  <symbol id="logo-onedrive" viewBox="0 0 32 32"><path fill="#1688e8" d="M13 7a9 9 0 0 1 17 5 7 7 0 0 1-2 13H9a7 7 0 0 1-1-14 9 9 0 0 1 5-4Z"/><path fill="#4fc3f7" d="M3 16a7 7 0 0 1 12-4l8 10H7a7 7 0 0 1-4-6Z"/></symbol>
+  <symbol id="logo-notion" viewBox="0 0 32 32"><rect x="3" y="3" width="26" height="26" rx="3" fill="#fff"/><path fill="#111" d="M10 8h3l7 10V8h3v16h-3l-7-10v10h-3z"/></symbol>
+  <symbol id="logo-slack" viewBox="0 0 32 32"><path fill="#36c5f0" d="M12 3h4v10h-4zM3 12h10v4H3z"/><path fill="#2eb67d" d="M19 3h4v10h-4zM19 12h10v4H19z"/><path fill="#e01e5a" d="M3 19h10v4H3zM12 19h4v10h-4z"/><path fill="#ecb22e" d="M19 19h10v4H19zM19 19h4v10h-4z"/></symbol>
+  <symbol id="logo-github" viewBox="0 0 32 32"><path fill="currentColor" d="M16 2a14 14 0 0 0-4.4 27.3c.7.1 1-.3 1-.7v-2.7c-4 .9-4.9-1.7-4.9-1.7-.7-1.7-1.6-2.2-1.6-2.2-1.3-.9.1-.9.1-.9 1.5.1 2.3 1.5 2.3 1.5 1.3 2.3 3.4 1.6 4.2 1.2.1-1 .5-1.6.9-2-3.2-.4-6.6-1.6-6.6-7.1 0-1.6.6-2.9 1.5-3.9-.2-.4-.7-1.9.1-3.9 0 0 1.2-.4 4 1.5a13.8 13.8 0 0 1 7.2 0c2.8-1.9 4-1.5 4-1.5.8 2 .3 3.5.1 3.9 1 1 1.5 2.3 1.5 3.9 0 5.5-3.4 6.7-6.6 7.1.5.4 1 1.2 1 2.5v4.3c0 .4.3.8 1 .7A14 14 0 0 0 16 2Z"/></symbol>
+  <symbol id="logo-calendar" viewBox="0 0 32 32"><rect x="3" y="5" width="26" height="24" rx="4" fill="#4285f4"/><path fill="#fff" d="M9 3h3v6H9zm11 0h3v6h-3zM7 12h18v13H7z"/><path fill="#4285f4" d="M11 15h4v4h-4zm6 0h4v4h-4zM11 21h4v3h-4z"/></symbol>
+  <symbol id="logo-gmail" viewBox="0 0 32 32"><path fill="#4285f4" d="M4 8v18h5V13z"/><path fill="#34a853" d="M23 13v13h5V8z"/><path fill="#ea4335" d="M4 8c0-2 2-3 4-2l8 6 8-6c2-1 4 0 4 2v2L16 18 4 10z"/><path fill="#fbbc04" d="M4 10v4l5 4v-5z"/><path fill="#c5221f" d="M28 10v4l-5 4v-5z"/></symbol>
+  <symbol id="plugin-search" viewBox="0 0 32 32"><circle cx="14" cy="14" r="8" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="m20 20 7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></symbol>
+  <symbol id="plugin-code" viewBox="0 0 32 32"><path d="m11 8-8 8 8 8m10-16 8 8-8 8m-2-20-4 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="plugin-image" viewBox="0 0 32 32"><rect x="4" y="5" width="24" height="22" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="11" cy="12" r="2.5" fill="currentColor"/><path d="m6 24 7-7 5 5 4-4 5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="plugin-data" viewBox="0 0 32 32"><path d="M5 27V17h5v10zm9 0V9h5v18zm9 0V4h5v23z" fill="currentColor"/></symbol>
+  <symbol id="plugin-pdf" viewBox="0 0 32 32"><path d="M8 3h11l7 7v19H8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M19 3v8h7M11 17h11m-11 4h11" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="plugin-writing" viewBox="0 0 32 32"><path d="m5 22-1 7 7-1L27 12l-6-6zM18 9l6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></symbol>
+  <symbol id="plugin-translate" viewBox="0 0 32 32"><path d="M4 7h16M12 4v3m6 0c-1 7-6 12-12 15m2-11c2 4 6 8 11 10m-1 5 6-15 6 15m-10-5h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="plugin-maps" viewBox="0 0 32 32"><path d="M26 13c0 7-10 16-10 16S6 20 6 13a10 10 0 1 1 20 0Z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="13" r="3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+</svg>
+<div class="settings-backdrop" id="settingsBackdrop" hidden>
+  <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <header class="settings-header"><div><div class="settings-kicker">NOIR</div><h2 id="settingsTitle">Settings</h2></div><button class="settings-close" id="settingsClose" aria-label="Close settings">×</button></header>
+    <div class="settings-layout">
+      <nav class="settings-nav" aria-label="Settings sections">
+        <button type="button" class="settings-tab is-active" data-settings-tab="general"><span>⚙</span>General</button>
+        <button type="button" class="settings-tab" data-settings-tab="connectors"><span>↗</span>Connectors</button>
+        <button type="button" class="settings-tab" data-settings-tab="plugins"><span>✳</span>Plugins</button>
+      </nav>
+      <div class="settings-content">
+        <section class="settings-panel" data-settings-panel="general">
+          <div class="settings-panel-title"><div><h3>General</h3><p>Adjust how NOIR looks and behaves.</p></div></div>
+          <div class="settings-options">
+            <div class="setting-switch-row"><span class="setting-option-copy"><b>Light appearance</b><small>Use a bright background and dark text</small></span><button type="button" class="setting-switch" id="lightAppearanceToggle" role="switch" aria-checked="false" aria-label="Light appearance"><span></span></button></div>
+            <div class="setting-switch-row"><span class="setting-option-copy"><b>Send with Enter</b><small>Press Enter to send a message</small></span><button type="button" class="setting-switch is-on" id="enterSendToggle" role="switch" aria-checked="true" aria-label="Send messages with Enter"><span></span></button></div>
+            <div class="setting-switch-row"><span class="setting-option-copy"><b>Prompt suggestions</b><small>Show starter ideas on the welcome screen</small></span><button type="button" class="setting-switch is-on" id="suggestionsToggle" role="switch" aria-checked="true" aria-label="Show prompt suggestions"><span></span></button></div>
+            <div class="setting-switch-row"><span class="setting-option-copy"><b>Compact messages</b><small>Reduce the space between chat messages</small></span><button type="button" class="setting-switch" id="compactToggle" role="switch" aria-checked="false" aria-label="Compact messages"><span></span></button></div>
+          </div>
+        </section>
+        <section class="settings-panel" data-settings-panel="connectors" hidden>
+          <div class="settings-panel-title"><div><h3>Connectors</h3><p>Link services to bring your files into NOIR.</p></div><span class="preview-tag">PREVIEW</span></div>
+          <div class="settings-options">
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Connector" data-name="Google Drive"><span class="setting-service-icon"><svg class="service-logo"><use href="#logo-drive"/></svg></span><span class="setting-option-copy"><b>Google Drive</b><small>Choose files from Drive</small></span><span class="option-state">Connect</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Connector" data-name="Dropbox"><span class="setting-service-icon"><svg class="service-logo"><use href="#logo-dropbox"/></svg></span><span class="setting-option-copy"><b>Dropbox</b><small>Browse your Dropbox files</small></span><span class="option-state">Connect</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Connector" data-name="OneDrive"><span class="setting-service-icon"><svg class="service-logo"><use href="#logo-onedrive"/></svg></span><span class="setting-option-copy"><b>OneDrive</b><small>Pick a file from OneDrive</small></span><span class="option-state">Connect</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Connector" data-name="Notion"><span class="setting-service-icon"><svg class="service-logo notion-logo"><use href="#logo-notion"/></svg></span><span class="setting-option-copy"><b>Notion</b><small>Search pages and workspaces</small></span><span class="option-state">Connect</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Connector" data-name="Slack"><span class="setting-service-icon"><svg class="service-logo"><use href="#logo-slack"/></svg></span><span class="setting-option-copy"><b>Slack</b><small>Find messages and shared files</small></span><span class="option-state">Connect</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Connector" data-name="GitHub"><span class="setting-service-icon github-logo"><svg class="service-logo"><use href="#logo-github"/></svg></span><span class="setting-option-copy"><b>GitHub</b><small>Browse repositories and issues</small></span><span class="option-state">Connect</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Connector" data-name="Google Calendar"><span class="setting-service-icon"><svg class="service-logo"><use href="#logo-calendar"/></svg></span><span class="setting-option-copy"><b>Google Calendar</b><small>Look up events and schedules</small></span><span class="option-state">Connect</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Connector" data-name="Gmail"><span class="setting-service-icon"><svg class="service-logo"><use href="#logo-gmail"/></svg></span><span class="setting-option-copy"><b>Gmail</b><small>Search your inbox</small></span><span class="option-state">Connect</span></button>
+          </div>
+        </section>
+        <section class="settings-panel" data-settings-panel="plugins" hidden>
+          <div class="settings-panel-title"><div><h3>Plugins</h3><p>Choose tools to add to a message.</p></div><span class="preview-tag">PREVIEW</span></div>
+          <div class="settings-options">
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Plugin" data-name="Web Search"><span class="setting-service-icon"><svg class="service-logo"><use href="#plugin-search"/></svg></span><span class="setting-option-copy"><b>Web Search</b><small>Find current information</small></span><span class="option-state">Add</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Plugin" data-name="Code Interpreter"><span class="setting-service-icon"><svg class="service-logo"><use href="#plugin-code"/></svg></span><span class="setting-option-copy"><b>Code Interpreter</b><small>Work with code and data</small></span><span class="option-state">Add</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Plugin" data-name="Image Generator"><span class="setting-service-icon"><svg class="service-logo"><use href="#plugin-image"/></svg></span><span class="setting-option-copy"><b>Image Generator</b><small>Create an image from a prompt</small></span><span class="option-state">Add</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Plugin" data-name="Data Analysis"><span class="setting-service-icon"><svg class="service-logo"><use href="#plugin-data"/></svg></span><span class="setting-option-copy"><b>Data Analysis</b><small>Explore tables and visualise results</small></span><span class="option-state">Add</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Plugin" data-name="PDF Reader"><span class="setting-service-icon"><svg class="service-logo"><use href="#plugin-pdf"/></svg></span><span class="setting-option-copy"><b>PDF Reader</b><small>Summarise and find details in PDFs</small></span><span class="option-state">Add</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Plugin" data-name="Writing Assistant"><span class="setting-service-icon"><svg class="service-logo"><use href="#plugin-writing"/></svg></span><span class="setting-option-copy"><b>Writing Assistant</b><small>Polish drafts and change tone</small></span><span class="option-state">Add</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Plugin" data-name="Translator"><span class="setting-service-icon"><svg class="service-logo"><use href="#plugin-translate"/></svg></span><span class="setting-option-copy"><b>Translator</b><small>Translate text between languages</small></span><span class="option-state">Add</span></button>
+            <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Plugin" data-name="Maps"><span class="setting-service-icon"><svg class="service-logo"><use href="#plugin-maps"/></svg></span><span class="setting-option-copy"><b>Maps</b><small>Explore places and directions</small></span><span class="option-state">Add</span></button>
+          </div>
+        </section>
+        <div class="settings-footnote">Connector and plugin choices are previews until service integrations are connected.</div>
+      </div>
+    </div>
+  </section>
+</div>
+<script src="script.js" defer></script>
+</body>
+</html>
