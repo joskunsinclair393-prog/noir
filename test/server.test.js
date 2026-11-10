@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createNoirServer, generateWithGemini, generateWithOpenAI } from '../server.js';
+import { createNoirServer, generateWithGemini, generateWithGroq, generateWithOpenAI } from '../server.js';
 
 const runningServers = [];
 const temporaryFolders = [];
@@ -67,6 +67,31 @@ test('OpenAI adapter returns response text and actual Responses API usage', asyn
   assert.deepEqual(result.usage, { inputTokens: 11, outputTokens: 7, totalTokens: 18 });
   assert.equal(requestOptions.headers.authorization, 'Bearer private-openai-key');
   assert.equal(JSON.parse(requestOptions.body).store, false);
+});
+
+test('Groq adapter sends chat messages securely and returns actual token usage', async () => {
+  let requestUrl;
+  let requestOptions;
+  const result = await generateWithGroq({
+    apiKey: 'private-groq-key', model: 'llama-test', instructions: 'system', maxOutputTokens: 200,
+    messages: [{ role: 'user', text: 'Hello' }, { role: 'assistant', text: 'Hi' }],
+    fetchImpl: async (url, options) => {
+      requestUrl = url;
+      requestOptions = options;
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'Hello from Groq.' } }],
+        usage: { prompt_tokens: 11, completion_tokens: 6, total_tokens: 17 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  });
+  assert.equal(result.text, 'Hello from Groq.');
+  assert.deepEqual(result.usage, { inputTokens: 11, outputTokens: 6, totalTokens: 17 });
+  assert.equal(requestUrl, 'https://api.groq.com/openai/v1/chat/completions');
+  assert.equal(new URL(requestUrl).search, '');
+  assert.equal(requestOptions.headers.authorization, 'Bearer private-groq-key');
+  const sent = JSON.parse(requestOptions.body);
+  assert.deepEqual(sent.messages.map(message => message.role), ['system', 'user', 'assistant']);
+  assert.equal(sent.max_tokens, 200);
 });
 
 test('chat, token totals, and credits are server-owned and isolated by session', async () => {
