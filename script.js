@@ -92,7 +92,10 @@
     if (oauthError) {
       history.replaceState({}, '', location.pathname);
       localStorage.removeItem('noirOAuthVerifier');
-      setAuthFeedback(oauthError);
+      const friendlyError = /provider is not enabled|unsupported provider/i.test(oauthError)
+        ? 'Google sign-in is not enabled in NOIR’s Supabase settings yet. The site owner must enable Google and add its OAuth client credentials.'
+        : oauthError;
+      setAuthFeedback(friendlyError);
       return false;
     }
     if (!code) return false;
@@ -176,8 +179,8 @@
     sessionInfo = data;
     const usage = data.usage || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     $('tokenTotal').textContent = numberFormat.format(usage.totalTokens || 0);
-    $('inputTokenTotal').textContent = numberFormat.format(usage.inputTokens || 0);
-    $('outputTokenTotal').textContent = numberFormat.format(usage.outputTokens || 0);
+    $('dailyTokenTotal').textContent = numberFormat.format(data.dailyTokens || 0);
+    $('dailyTokenLimit').textContent = numberFormat.format(data.dailyTokenLimit || 50);
     $('providerLabel').textContent = `${data.provider.label} · ${data.provider.model}`;
     $('creditsPanel').hidden = !data.creditsEnabled;
     if (data.creditsEnabled) $('creditBalance').textContent = data.creditsUnlimited ? 'Unlimited' : numberFormat.format(data.credits || 0);
@@ -550,7 +553,8 @@
   document.querySelectorAll('[data-prompt]').forEach(button => button.addEventListener('click', () => send(button.dataset.prompt)));
 
   async function loadChatApp() {
-    const data = await api('/api/bootstrap');
+    const timeZone = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    const data = await api(`/api/bootstrap?timeZone=${timeZone}`);
     chats = data.chats || [];
     updateSession(data.session);
     renderChatHistory();
