@@ -181,6 +181,24 @@ function normalizedUsage(usage) {
   return { inputTokens, outputTokens, totalTokens };
 }
 
+function resolveTimeZone(value) {
+  if (typeof value !== 'string' || value.length > 100) return 'UTC';
+  try { return new Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions().timeZone; }
+  catch { return 'UTC'; }
+}
+
+function currentDateForTimeZone(timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'long',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.weekday}, ${values.year}-${values.month}-${values.day}`;
+}
+
 function publicError(error) {
   if (error instanceof ProviderError) {
     if (error.status === 429) return { status: 429, message: 'The AI provider rate limit was reached. Please try again shortly.', code: 'provider_rate_limit' };
@@ -400,11 +418,11 @@ export function createNoirServer(options = {}) {
     try { return new URL(origin).host === request.headers.host; } catch { return false; }
   }
 
-  async function generate(messages) {
+  async function generate(messages, timeZone = 'UTC') {
     const args = {
       model: config.model,
       messages,
-      instructions: 'You are NOIR, a helpful, thoughtful AI assistant. Give accurate, clear answers with natural conversation. If you are unsure, say so. Use concise structure when it helps.',
+      instructions: `You are NOIR, a helpful, thoughtful AI assistant. Give accurate, clear answers with natural conversation. If you are unsure, say so. Use concise structure when it helps. The current date in the user's local timezone (${timeZone}) is ${currentDateForTimeZone(timeZone)}. When asked for today's date or current day, use this date.`,
       maxOutputTokens: config.maxOutputTokens,
       reasoningEffort: config.reasoningEffort,
       fetchImpl: options.fetchImpl || fetch,
@@ -458,10 +476,25 @@ export function createNoirServer(options = {}) {
           if (!chat) return sendJson(response, 404, { error: 'Chat not found.' });
           return sendJson(response, 200, { chat });
         }
+        if (request.method === 'DELETE' && url.pathname.startsWith('/api/chats/')) {
+          const { key, data } = await getSession(request, response);
+          const chatId = decodeURIComponent(url.pathname.slice('/api/chats/'.length));
+          checkRateLimit(key);
+          const deleted = await withSessionLock(key, async () => {
+            const index = data.chats.findIndex(item => item.id === chatId);
+            if (index < 0) throw Object.assign(new Error('Chat not found.'), { status: 404, code: 'chat_not_found' });
+            data.chats.splice(index, 1);
+            if (config.authRequired) await persistAccountData(accountUser.id, data);
+            else saveStore();
+            return true;
+          });
+          return sendJson(response, 200, { deleted });
+        }
         if (request.method === 'POST' && url.pathname === '/api/chat') {
           if (!String(request.headers['content-type'] || '').includes('application/json')) return sendJson(response, 415, { error: 'Send JSON requests only.' });
           const body = await readJsonBody(request);
           const message = typeof body.message === 'string' ? body.message.trim() : '';
+          const timeZone = resolveTimeZone(body.timeZone);
           if (!message) return sendJson(response, 400, { error: 'Write a message before sending.' });
           if (message.length > 12_000) return sendJson(response, 413, { error: 'Messages must be 12,000 characters or fewer.' });
           const { key, data, user } = await getSession(request, response);
@@ -488,7 +521,7 @@ export function createNoirServer(options = {}) {
               history.unshift({ role: item.role, text: itemText });
               historyCharacters += itemText.length;
             }
-            const generated = await generate(history);
+            const generated = await generate(history, timeZone);
             const usage = normalizedUsage(generated.usage || {});
             if (!generated.text || !usage.inputTokens && !usage.outputTokens) throw Object.assign(new Error('The provider did not return a response with token usage.'), { status: 502, code: 'invalid_provider_response' });
             chat.title = chat.messages.length ? chat.title : (message.replace(/\s+/g, ' ').slice(0, 42) || 'New chat');
