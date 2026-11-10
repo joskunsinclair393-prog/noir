@@ -46,6 +46,18 @@ Stop the server with **Ctrl+C** in Terminal.
 
 The website does not need redesigning to switch providers. Change `AI_PROVIDER`, `AI_MODEL`, and the matching key in `.env`, then restart the server.
 
+### Groq
+
+Set:
+
+```dotenv
+AI_PROVIDER=groq
+AI_MODEL=llama-3.3-70b-versatile
+GROQ_API_KEY=your_key_here
+```
+
+Create a key in the [Groq Console](https://console.groq.com/keys). Groq offers a free tier with rate limits; moving to its paid Developer tier requires a payment method. Check the current [rate limits](https://console.groq.com/docs/rate-limits). NOIR sends Groq requests only when `ALLOW_BILLABLE_REQUESTS=true`; that switch permits API calls but does not add a payment method or upgrade the Groq account.
+
 ### Google Gemini
 
 Set:
@@ -80,7 +92,7 @@ NOIR starts with provider requests disabled. After you have reviewed the selecte
 ALLOW_BILLABLE_REQUESTS=true
 ```
 
-This only allows NOIR to send API requests. It does **not** create a paid account, add a payment method, or enable billing with Google or OpenAI. If the provider account has billing enabled, usage may be charged under that provider’s terms. The project does not change provider account settings.
+This only allows NOIR to send API requests. It does **not** create a paid account, add a payment method, or enable billing with a provider. If the provider account has billing enabled, usage may be charged under that provider’s terms. The project does not change provider account settings.
 
 ## Token usage and credits
 
