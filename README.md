@@ -1,6 +1,6 @@
 # NOIR
 
-NOIR is an open-source chat app with a Node.js backend. It can use Google Gemini or OpenAI, supports required account sign-in for a public deployment, keeps chats separated by account, and keeps provider keys out of browser code.
+NOIR is an open-source chat app with a Node.js backend. It can use Google Gemini, OpenAI, or Groq, supports required account sign-in for a public deployment, keeps chats separated by account, and keeps provider keys out of browser code.
 
 ## Requirements
 
