@@ -180,7 +180,7 @@
     $('outputTokenTotal').textContent = numberFormat.format(usage.outputTokens || 0);
     $('providerLabel').textContent = `${data.provider.label} · ${data.provider.model}`;
     $('creditsPanel').hidden = !data.creditsEnabled;
-    if (data.creditsEnabled) $('creditBalance').textContent = numberFormat.format(data.credits || 0);
+    if (data.creditsEnabled) $('creditBalance').textContent = data.creditsUnlimited ? 'Unlimited' : numberFormat.format(data.credits || 0);
 
     if (data.provider.ready) showNotice('', false);
     else if (!data.provider.keyConfigured) showNotice(`NOIR can’t generate AI replies yet: add a ${data.provider.label} API key to .env, then restart the server. Requests stay paused until you separately opt in after reviewing costs.`);
