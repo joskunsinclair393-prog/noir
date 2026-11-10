@@ -207,6 +207,7 @@ export function createNoirServer(options = {}) {
     creditsEnabled: env.creditsEnabled ?? bool(process.env.ENABLE_CREDITS, true),
     startingCredits: integer(env.startingCredits ?? process.env.STARTING_CREDITS, 100),
     creditsPerMessage: integer(env.creditsPerMessage ?? process.env.CREDITS_PER_MESSAGE, 1, 1),
+    unlimitedAccessEmails: new Set(String(env.unlimitedAccessEmails ?? process.env.UNLIMITED_ACCESS_EMAILS ?? '').split(',').map(email => email.trim().toLowerCase()).filter(Boolean)),
     maxOutputTokens: integer(env.maxOutputTokens ?? process.env.MAX_OUTPUT_TOKENS, 1024, 64),
     reasoningEffort: String(env.reasoningEffort ?? process.env.OPENAI_REASONING_EFFORT ?? ''),
     maxRequestsPerMinute: integer(env.maxRequestsPerMinute ?? process.env.MAX_REQUESTS_PER_MINUTE, 12, 1),
@@ -273,7 +274,15 @@ export function createNoirServer(options = {}) {
     let user;
     try { user = await response.json(); } catch { user = null; }
     if (!user || typeof user.id !== 'string' || !user.id) throw Object.assign(new Error('NOIR could not verify your sign-in.'), { status: 401, code: 'authentication_required' });
-    return { id: user.id, email: typeof user.email === 'string' ? user.email : '' };
+    return {
+      id: user.id,
+      email: typeof user.email === 'string' ? user.email : '',
+      emailConfirmed: Boolean(user.email_confirmed_at || user.confirmed_at),
+    };
+  }
+
+  function hasUnlimitedAccess(user) {
+    return Boolean(config.authRequired && user?.emailConfirmed && config.unlimitedAccessEmails.has(user.email.toLowerCase()));
   }
 
   async function authenticatedSessionFor(user) {
@@ -370,11 +379,12 @@ export function createNoirServer(options = {}) {
     };
   }
 
-  function sessionSummary(data) {
+  function sessionSummary(data, user = null) {
     return {
       usage: data.usage,
       creditsEnabled: Boolean(config.creditsEnabled),
       credits: config.creditsEnabled ? data.credits : null,
+      creditsUnlimited: hasUnlimitedAccess(user),
       creditsPerMessage: config.creditsPerMessage,
       provider: providerInfo(),
     };
@@ -439,7 +449,7 @@ export function createNoirServer(options = {}) {
         const getSession = (req, res) => config.authRequired ? authenticatedSessionFor(accountUser) : Promise.resolve(sessionFor(req, res));
         if (request.method === 'GET' && url.pathname === '/api/bootstrap') {
           const { data, user } = await getSession(request, response);
-          return sendJson(response, 200, { session: sessionSummary(data), user: user ? { email: user.email } : null, chats: data.chats.map(chatSummary).sort((a, b) => b.updatedAt - a.updatedAt) });
+          return sendJson(response, 200, { session: sessionSummary(data, user), user: user ? { email: user.email } : null, chats: data.chats.map(chatSummary).sort((a, b) => b.updatedAt - a.updatedAt) });
         }
         if (request.method === 'GET' && url.pathname.startsWith('/api/chats/')) {
           const { data } = await getSession(request, response);
@@ -454,14 +464,15 @@ export function createNoirServer(options = {}) {
           const message = typeof body.message === 'string' ? body.message.trim() : '';
           if (!message) return sendJson(response, 400, { error: 'Write a message before sending.' });
           if (message.length > 12_000) return sendJson(response, 413, { error: 'Messages must be 12,000 characters or fewer.' });
-          const { key, data } = await getSession(request, response);
+          const { key, data, user } = await getSession(request, response);
           checkRateLimit(key);
           const result = await withSessionLock(key, async () => {
             if (!providerInfo().ready && !options.generate) {
               if (!config.allowRequests) await generate([]);
               if (!providerInfo().keyConfigured) await generate([]);
             }
-            if (config.creditsEnabled && data.credits < config.creditsPerMessage) {
+            const unlimitedAccess = hasUnlimitedAccess(user);
+            if (config.creditsEnabled && !unlimitedAccess && data.credits < config.creditsPerMessage) {
               throw Object.assign(new Error('You’re out of NOIR credits. Add credits or turn off the optional credit limit in .env.'), { status: 402, code: 'insufficient_credits' });
             }
             const suppliedChatId = typeof body.chatId === 'string' && body.chatId ? body.chatId : null;
@@ -489,10 +500,10 @@ export function createNoirServer(options = {}) {
             data.usage.inputTokens += usage.inputTokens;
             data.usage.outputTokens += usage.outputTokens;
             data.usage.totalTokens += usage.totalTokens;
-            if (config.creditsEnabled) data.credits -= config.creditsPerMessage;
+            if (config.creditsEnabled && !unlimitedAccess) data.credits -= config.creditsPerMessage;
             if (config.authRequired) await persistAccountData(accountUser.id, data);
             else saveStore();
-            return { chat, usage, session: sessionSummary(data) };
+            return { chat, usage, session: sessionSummary(data, user) };
           });
           return sendJson(response, 200, result);
         }
