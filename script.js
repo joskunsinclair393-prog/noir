@@ -199,17 +199,67 @@
     const list = $('chatHistory');
     list.replaceChildren();
     [...chats].sort((a, b) => b.updatedAt - a.updatedAt).forEach(chat => {
+      const row = document.createElement('div');
+      row.className = 'chat-history-row' + (chat.id === activeChatId ? ' is-active' : '');
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'chat-history-item' + (chat.id === activeChatId ? ' is-active' : '');
+      button.className = 'chat-history-item';
       button.title = chat.title;
       const title = document.createElement('span');
       title.textContent = chat.title;
       button.append(title);
       button.addEventListener('click', () => openChat(chat.id));
-      list.append(button);
+
+      const optionsWrap = document.createElement('div');
+      optionsWrap.className = 'chat-options-wrap';
+      const optionsButton = document.createElement('button');
+      optionsButton.type = 'button';
+      optionsButton.className = 'chat-more-button';
+      optionsButton.textContent = '⋯';
+      optionsButton.setAttribute('aria-label', `Chat options for ${chat.title}`);
+      optionsButton.setAttribute('aria-haspopup', 'menu');
+      optionsButton.setAttribute('aria-expanded', 'false');
+      const menu = document.createElement('div');
+      menu.className = 'chat-options-menu';
+      menu.setAttribute('role', 'menu');
+      menu.hidden = true;
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'chat-delete-button';
+      deleteButton.setAttribute('role', 'menuitem');
+      deleteButton.textContent = 'Delete';
+      optionsButton.addEventListener('click', event => {
+        event.stopPropagation();
+        const shouldOpen = menu.hidden;
+        document.querySelectorAll('.chat-options-menu').forEach(other => { other.hidden = true; });
+        document.querySelectorAll('.chat-more-button').forEach(other => other.setAttribute('aria-expanded', 'false'));
+        menu.hidden = !shouldOpen;
+        optionsButton.setAttribute('aria-expanded', String(shouldOpen));
+      });
+      deleteButton.addEventListener('click', event => {
+        event.stopPropagation();
+        menu.hidden = true;
+        optionsButton.setAttribute('aria-expanded', 'false');
+        deleteChat(chat);
+      });
+      menu.append(deleteButton);
+      optionsWrap.append(optionsButton, menu);
+      row.append(button, optionsWrap);
+      list.append(row);
     });
     $('historyEmpty').hidden = chats.length > 0;
+  }
+
+  async function deleteChat(chat) {
+    if (!window.confirm(`Delete “${chat.title}”? This chat can’t be restored.`)) return;
+    try {
+      await api(`/api/chats/${encodeURIComponent(chat.id)}`, { method: 'DELETE' });
+      chats = chats.filter(item => item.id !== chat.id);
+      if (activeChatId === chat.id) startNewChat(false);
+      else renderChatHistory();
+    } catch (error) {
+      showNotice(error.message);
+    }
   }
 
   function renderAttachments() {
@@ -275,7 +325,7 @@
     resize();
   }
 
-  function addMessage(role, text, usage = null, state = '') {
+  function addMessage(role, text, usage = null, state = '', shouldScroll = true) {
     const row = document.createElement('div');
     row.className = 'message ' + role + (state ? ' ' + state : '');
     const bubble = document.createElement('div');
@@ -284,8 +334,12 @@
     row.append(bubble);
     if (usage && role === 'user') addUsageMeta(row, usage);
     messages.append(row);
-    row.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    if (shouldScroll) scrollMessagesToBottom();
     return row;
+  }
+
+  function scrollMessagesToBottom(behavior = 'smooth') {
+    messages.scrollTo({ top: messages.scrollHeight, behavior });
   }
 
   function addUsageMeta(row, usage) {
@@ -310,7 +364,7 @@
     }
     row.append(bubble);
     messages.append(row);
-    row.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    scrollMessagesToBottom();
     return row;
   }
 
@@ -321,7 +375,8 @@
       activeChatId = chat.id;
       rememberActiveChat(activeChatId);
       messages.replaceChildren();
-      chat.messages.forEach(item => addMessage(item.role, item.text, item.role === 'user' ? item.usage : null));
+      chat.messages.forEach(item => addMessage(item.role, item.text, item.role === 'user' ? item.usage : null, '', false));
+      scrollMessagesToBottom('auto');
       $('welcome').hidden = true;
       clearDraft();
       renderChatHistory();
@@ -416,10 +471,17 @@
     if (event.target === app && window.matchMedia('(max-width: 700px)').matches && sidebarOpen) setSidebar(false);
   });
   document.addEventListener('click', event => { if (!event.target.closest('.attach-wrap')) closeAttachMenu(); });
+  document.addEventListener('click', event => {
+    if (event.target.closest('.chat-options-wrap')) return;
+    document.querySelectorAll('.chat-options-menu').forEach(menu => { menu.hidden = true; });
+    document.querySelectorAll('.chat-more-button').forEach(button => button.setAttribute('aria-expanded', 'false'));
+  });
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       if (!settingsBackdrop.hidden) closeSettings();
       else closeAttachMenu();
+      document.querySelectorAll('.chat-options-menu').forEach(menu => { menu.hidden = true; });
+      document.querySelectorAll('.chat-more-button').forEach(button => button.setAttribute('aria-expanded', 'false'));
     }
   });
 
@@ -449,7 +511,7 @@
     try {
       const result = await api('/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ chatId: activeChatId, message: value }),
+        body: JSON.stringify({ chatId: activeChatId, message: value, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
       });
       activeChatId = result.chat.id;
       rememberActiveChat(activeChatId);
@@ -473,7 +535,7 @@
       input.disabled = false;
       input.value = '';
       resize();
-      input.focus();
+      input.focus({ preventScroll: true });
     }
   }
 
