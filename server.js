@@ -107,6 +107,38 @@ export async function generateWithOpenAI({ apiKey, model, messages, instructions
   };
 }
 
+export async function generateWithGroq({ apiKey, model, messages, instructions, maxOutputTokens, fetchImpl = fetch }) {
+  const response = await fetchImpl('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: instructions },
+        ...messages.map(message => ({ role: message.role === 'assistant' ? 'assistant' : 'user', content: message.text })),
+      ],
+      max_tokens: maxOutputTokens,
+      temperature: 0.7,
+      stream: false,
+    }),
+  });
+  const data = await providerJson(response);
+  const text = String(data.choices?.[0]?.message?.content || '').trim();
+  const metadata = data.usage || {};
+  if (!text) throw new ProviderError(502, 'The model returned an empty response.');
+  if (!Number.isFinite(metadata.prompt_tokens) || !Number.isFinite(metadata.completion_tokens)) {
+    throw new ProviderError(502, 'The model response did not include token usage.');
+  }
+  return {
+    text,
+    usage: {
+      inputTokens: metadata.prompt_tokens,
+      outputTokens: metadata.completion_tokens,
+      totalTokens: Number.isFinite(metadata.total_tokens) ? metadata.total_tokens : metadata.prompt_tokens + metadata.completion_tokens,
+    },
+  };
+}
+
 function readJsonBody(request, maxBytes = 96 * 1024) {
   return new Promise((resolveBody, reject) => {
     let size = 0;
@@ -170,6 +202,7 @@ export function createNoirServer(options = {}) {
     model: String(env.model ?? process.env.AI_MODEL ?? 'gemini-3.8-flash').trim(),
     geminiApiKey: String(env.geminiApiKey ?? process.env.GEMINI_API_KEY ?? ''),
     openaiApiKey: String(env.openaiApiKey ?? process.env.OPENAI_API_KEY ?? ''),
+    groqApiKey: String(env.groqApiKey ?? process.env.GROQ_API_KEY ?? ''),
     allowRequests: env.allowRequests ?? bool(process.env.ALLOW_BILLABLE_REQUESTS, false),
     creditsEnabled: env.creditsEnabled ?? bool(process.env.ENABLE_CREDITS, true),
     startingCredits: integer(env.startingCredits ?? process.env.STARTING_CREDITS, 100),
@@ -324,9 +357,9 @@ export function createNoirServer(options = {}) {
   }
 
   function providerInfo() {
-    const supported = config.provider === 'gemini' || config.provider === 'openai';
-    const hasKey = config.provider === 'gemini' ? Boolean(config.geminiApiKey) : config.provider === 'openai' ? Boolean(config.openaiApiKey) : false;
-    const labels = { gemini: 'Google Gemini', openai: 'OpenAI' };
+    const supported = config.provider === 'gemini' || config.provider === 'openai' || config.provider === 'groq';
+    const hasKey = config.provider === 'gemini' ? Boolean(config.geminiApiKey) : config.provider === 'openai' ? Boolean(config.openaiApiKey) : config.provider === 'groq' ? Boolean(config.groqApiKey) : false;
+    const labels = { gemini: 'Google Gemini', openai: 'OpenAI', groq: 'Groq' };
     return {
       id: config.provider,
       label: labels[config.provider] || 'Unconfigured provider',
@@ -367,7 +400,7 @@ export function createNoirServer(options = {}) {
       fetchImpl: options.fetchImpl || fetch,
     };
     if (options.generate) return options.generate({ provider: config.provider, ...args });
-    if (config.provider !== 'gemini' && config.provider !== 'openai') throw Object.assign(new Error('Set AI_PROVIDER to gemini or openai in .env.'), { status: 503, code: 'invalid_provider' });
+    if (!['gemini', 'openai', 'groq'].includes(config.provider)) throw Object.assign(new Error('Set AI_PROVIDER to gemini, openai, or groq in .env.'), { status: 503, code: 'invalid_provider' });
     if (config.provider === 'gemini') {
       if (!config.geminiApiKey) throw Object.assign(new Error('Add GEMINI_API_KEY to .env before sending AI requests.'), { status: 503, code: 'missing_api_key' });
       if (!config.allowRequests) throw Object.assign(new Error('AI requests are paused by default to avoid unexpected provider charges. Review your provider’s pricing, then opt in with ALLOW_BILLABLE_REQUESTS=true in .env.'), { status: 403, code: 'provider_opt_in_required' });
@@ -378,7 +411,12 @@ export function createNoirServer(options = {}) {
       if (!config.allowRequests) throw Object.assign(new Error('AI requests are paused by default to avoid unexpected provider charges. Review your provider’s pricing, then opt in with ALLOW_BILLABLE_REQUESTS=true in .env.'), { status: 403, code: 'provider_opt_in_required' });
       return generateWithOpenAI({ ...args, apiKey: config.openaiApiKey });
     }
-    throw Object.assign(new Error('Set AI_PROVIDER to gemini or openai in .env.'), { status: 503, code: 'invalid_provider' });
+    if (config.provider === 'groq') {
+      if (!config.groqApiKey) throw Object.assign(new Error('Add GROQ_API_KEY to .env before sending AI requests.'), { status: 503, code: 'missing_api_key' });
+      if (!config.allowRequests) throw Object.assign(new Error('AI requests are paused by default to avoid unexpected provider charges. Review your provider’s pricing, then opt in with ALLOW_BILLABLE_REQUESTS=true in .env.'), { status: 403, code: 'provider_opt_in_required' });
+      return generateWithGroq({ ...args, apiKey: config.groqApiKey });
+    }
+    throw Object.assign(new Error('Set AI_PROVIDER to gemini, openai, or groq in .env.'), { status: 503, code: 'invalid_provider' });
   }
 
   const server = createServer(async (request, response) => {
