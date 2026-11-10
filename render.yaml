@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: noir
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/auth-config
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: AUTH_REQUIRED
+        value: "true"
+      - key: AI_PROVIDER
+        value: gemini
+      - key: AI_MODEL
+        value: gemini-3.8-flash
+      - key: ENABLE_CREDITS
+        value: "true"
+      - key: STARTING_CREDITS
+        value: "100"
+      - key: CREDITS_PER_MESSAGE
+        value: "1"
+      - key: MAX_REQUESTS_PER_MINUTE
+        value: "12"
+      - key: MAX_PUBLIC_REQUESTS_PER_MINUTE
+        value: "20"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
