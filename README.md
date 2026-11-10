@@ -98,6 +98,7 @@ This only allows NOIR to send API requests. It does **not** create a paid accoun
 
 - NOIR reads input and output token counts from the selected provider’s response metadata. The total and per-message counts are shown in the interface.
 - Credits are a separate, optional NOIR limit. With the example settings, a new browser session starts with 100 credits and a successful response costs 1 credit. Failed responses do not spend credits.
+- For trusted accounts that should bypass the in-app credit limit, set `UNLIMITED_ACCESS_EMAILS` to a comma-separated list of verified account email addresses on the server. Keep this setting private; never add real addresses to source control or frontend code. It removes only the NOIR credit limit and does not bypass sign-in or provider rate limits.
 - Change `ENABLE_CREDITS`, `STARTING_CREDITS`, and `CREDITS_PER_MESSAGE` in `.env` to adjust this. Credit values and token totals are stored and updated by the server; the browser cannot submit a replacement balance.
 
 ## Accounts and social sign-in
