@@ -97,8 +97,8 @@ This only allows NOIR to send API requests. It does **not** create a paid accoun
 ## Token usage and credits
 
 - NOIR reads input and output token counts from the selected provider’s response metadata. The total and per-message counts are shown in the interface.
-- Each account has a server-enforced daily token budget of 50 by default (`MAX_DAILY_TOKENS`); it resets at midnight UTC. The interface shows today’s usage separately from lifetime usage.
-- Credits are a separate, optional NOIR limit. With the example settings, a new browser session starts with 100 credits and a successful response costs 1 credit. Failed responses do not spend credits.
+- Daily token usage is tracked and shown, but NOIR imposes no daily token cap by default (`MAX_DAILY_TOKENS=0`). Provider/model quotas and account charges can still apply.
+- Credits are a separate, optional NOIR limit and are disabled by default. Enable them with `ENABLE_CREDITS=true`; a new session then starts with 100 credits and a successful response costs 1 credit.
 - For trusted accounts that should bypass the in-app credit limit, set `UNLIMITED_ACCESS_EMAILS` to a comma-separated list of verified account email addresses on the server. Keep this setting private; never add real addresses to source control or frontend code. It removes only the NOIR credit limit and does not bypass sign-in or provider rate limits.
 - Change `ENABLE_CREDITS`, `STARTING_CREDITS`, and `CREDITS_PER_MESSAGE` in `.env` to adjust this. Credit values and token totals are stored and updated by the server; the browser cannot submit a replacement balance.
 
