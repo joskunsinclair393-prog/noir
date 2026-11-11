@@ -250,7 +250,7 @@ function publicError(error) {
   return { status: 500, message: 'Something went wrong on the NOIR server. Please try again.', code: 'server_error' };
 }
 
-const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
+const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8' };
 
 export function createNoirServer(options = {}) {
   const env = options.config || {};
@@ -275,6 +275,7 @@ export function createNoirServer(options = {}) {
     supabaseUrl: String(env.supabaseUrl ?? process.env.SUPABASE_URL ?? '').replace(/\/$/, ''),
     supabaseAnonKey: String(env.supabaseAnonKey ?? process.env.SUPABASE_ANON_KEY ?? ''),
     supabaseServiceRoleKey: String(env.supabaseServiceRoleKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''),
+    googleSiteVerification: String(env.googleSiteVerification ?? process.env.GOOGLE_SITE_VERIFICATION ?? '').trim(),
     stripeSecretKey: String(env.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY ?? '').trim(),
     stripeWebhookSecret: String(env.stripeWebhookSecret ?? process.env.STRIPE_WEBHOOK_SECRET ?? '').trim(),
     stripePriceId: String(env.stripePriceId ?? process.env.STRIPE_PRICE_ID ?? '').trim(),
@@ -861,12 +862,17 @@ export function createNoirServer(options = {}) {
 
       if (request.method !== 'GET' && request.method !== 'HEAD') return sendJson(response, 405, { error: 'Method not allowed.' });
       const publicFiles = new Map([
-        ['/', 'index.html'], ['/index.html', 'index.html'], ['/styles.css', 'styles.css'], ['/script.js', 'script.js'], ['/logo.svg', 'logo.svg'], ['/logo.svg.png', 'logo.svg.png'],
+        ['/', 'index.html'], ['/index.html', 'index.html'], ['/styles.css', 'styles.css'], ['/script.js', 'script.js'], ['/logo.svg', 'logo.svg'], ['/logo.svg.png', 'logo.svg.png'], ['/robots.txt', 'robots.txt'], ['/sitemap.xml', 'sitemap.xml'],
       ]);
       const file = publicFiles.get(url.pathname);
       if (!file) return sendJson(response, 404, { error: 'Not found.' });
       const filePath = join(ROOT, file);
-      const content = readFileSync(filePath);
+      let content = readFileSync(filePath);
+      if (file === 'index.html') {
+        const token = /^[A-Za-z0-9_-]{1,256}$/.test(config.googleSiteVerification) ? config.googleSiteVerification : '';
+        const verificationMeta = token ? `<meta name="google-site-verification" content="${token}">` : '';
+        content = Buffer.from(content.toString('utf8').replace('<!-- GOOGLE_SITE_VERIFICATION -->', verificationMeta), 'utf8');
+      }
       response.writeHead(200, { 'content-type': contentTypes[extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
       return response.end(request.method === 'HEAD' ? undefined : content);
     } catch (error) {

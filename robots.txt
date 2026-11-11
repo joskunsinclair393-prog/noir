@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /account/
+Disallow: /accounts/
+Disallow: /chat/
+Disallow: /chats/
+Disallow: /settings/
+Disallow: /*?
+
+Sitemap: https://noir-buhz.onrender.com/sitemap.xml

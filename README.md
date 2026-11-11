@@ -146,6 +146,12 @@ The project includes a `render.yaml` Blueprint for a small free web service in S
 
 The free Render service sleeps after inactivity, so the first page load after a quiet period can be slow. Supabase Free projects may also pause after a week without activity. These free tiers have usage limits and are suitable for getting started, not a promise of uninterrupted production service.
 
+## Search visibility
+
+The public root page is the only URL listed in `sitemap.xml`. `robots.txt` allows public crawling and asks crawlers to skip API endpoints, account/chat/settings paths, and query-string URLs. Account access is still enforced by Supabase authentication and server-side checks; robots directives are not an access-control mechanism. The homepage includes a canonical URL for `https://noir-buhz.onrender.com/` and Open Graph/Twitter sharing metadata.
+
+To verify the site with Google Search Console, choose the **HTML tag** verification method, copy the token from Google's `content` attribute, and add it as the private `GOOGLE_SITE_VERIFICATION` environment variable in Render. The server inserts a safely validated verification meta tag into the homepage response. Do not include the whole `<meta>` tag or put the token in committed frontend code. After Search Console verifies ownership, you can submit `https://noir-buhz.onrender.com/sitemap.xml` and request indexing. This setup does not guarantee or claim that Google has indexed the site.
+
 When `SUPABASE_SERVICE_ROLE_KEY` is configured, account data is saved in the private `noir_user_data` database table; otherwise, the included JSON store needs a persistent disk. Keep a single server instance so the in-memory rate limits and account locks are shared.
 
 NOIR does not deploy itself or create a public website account. You choose and configure the source-code host, app host, domain, Supabase project, and provider accounts. Hosting services, domains, OAuth accounts, email delivery, and AI APIs may have charges. Review the prices before enabling anything paid. AI generation stays blocked until `ALLOW_BILLABLE_REQUESTS=true`; that setting may result in provider charges when a user chats. The public server also has a shared rate limit (`MAX_PUBLIC_REQUESTS_PER_MINUTE`, default 20) and per-account message limit, but those limits do not guarantee a maximum bill.

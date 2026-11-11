@@ -46,6 +46,8 @@ services:
         sync: false
       - key: PUBLIC_APP_URL
         sync: false
+      - key: GOOGLE_SITE_VERIFICATION
+        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: ALLOW_BILLABLE_REQUESTS
