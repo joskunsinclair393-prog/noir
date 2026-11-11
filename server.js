@@ -389,13 +389,14 @@ export function createNoirServer(options = {}) {
     }
   }
 
-  function checkRateLimit(key) {
+  function checkRateLimit(key, bypassAccountLimit = false) {
     const now = Date.now();
     if (config.authRequired) {
       while (publicRequestTimes.length && now - publicRequestTimes[0] >= 60_000) publicRequestTimes.shift();
       if (publicRequestTimes.length >= config.maxPublicRequestsPerMinute) throw Object.assign(new Error('NOIR is busy. Please try again in a minute.'), { status: 429, code: 'public_rate_limited' });
       publicRequestTimes.push(now);
     }
+    if (bypassAccountLimit) return;
     const previous = (requestTimes.get(key) || []).filter(time => now - time < 60_000);
     if (previous.length >= config.maxRequestsPerMinute) throw Object.assign(new Error('You’re sending messages too quickly. Wait a moment and try again.'), { status: 429, code: 'rate_limited' });
     previous.push(now);
@@ -522,7 +523,7 @@ export function createNoirServer(options = {}) {
           if (!message) return sendJson(response, 400, { error: 'Write a message before sending.' });
           if (message.length > 12_000) return sendJson(response, 413, { error: 'Messages must be 12,000 characters or fewer.' });
           const { key, data, user } = await getSession(request, response);
-          checkRateLimit(key);
+          checkRateLimit(key, hasUnlimitedAccess(user));
           const result = await withSessionLock(key, async () => {
             if (!providerInfo().ready && !options.generate) {
               if (!config.allowRequests) await generate([]);
