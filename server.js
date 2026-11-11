@@ -245,7 +245,7 @@ export function createNoirServer(options = {}) {
     creditsPerMessage: integer(env.creditsPerMessage ?? process.env.CREDITS_PER_MESSAGE, 1, 1),
     unlimitedAccessEmails: new Set(String(env.unlimitedAccessEmails ?? process.env.UNLIMITED_ACCESS_EMAILS ?? '').split(',').map(email => email.trim().toLowerCase()).filter(Boolean)),
     maxOutputTokens: integer(env.maxOutputTokens ?? process.env.MAX_OUTPUT_TOKENS, 1024, 64),
-    dailyTokenLimit: integer(env.dailyTokenLimit ?? process.env.MAX_DAILY_TOKENS, 50, 1),
+    dailyTokenLimit: integer(env.dailyTokenLimit ?? process.env.MAX_DAILY_TOKENS, 0, 0),
     reasoningEffort: String(env.reasoningEffort ?? process.env.OPENAI_REASONING_EFFORT ?? ''),
     maxRequestsPerMinute: integer(env.maxRequestsPerMinute ?? process.env.MAX_REQUESTS_PER_MINUTE, 12, 1),
     maxPublicRequestsPerMinute: integer(env.maxPublicRequestsPerMinute ?? process.env.MAX_PUBLIC_REQUESTS_PER_MINUTE, 20, 1),
@@ -421,7 +421,7 @@ export function createNoirServer(options = {}) {
     return {
       usage: data.usage,
       dailyTokens: daily.tokens,
-      dailyTokenLimit: config.dailyTokenLimit,
+      dailyTokenLimit: config.dailyTokenLimit || null,
       dailyTokenDate: daily.date,
       creditsEnabled: Boolean(config.creditsEnabled),
       credits: config.creditsEnabled ? data.credits : null,
@@ -530,7 +530,7 @@ export function createNoirServer(options = {}) {
             }
             const unlimitedAccess = hasUnlimitedAccess(user);
             const daily = dailyTokenUsage(data);
-            const remainingTokens = config.dailyTokenLimit - daily.tokens;
+            const remainingTokens = config.dailyTokenLimit ? config.dailyTokenLimit - daily.tokens : Infinity;
             if (remainingTokens <= 0) {
               throw Object.assign(new Error(`You’ve used today’s ${config.dailyTokenLimit} token limit. It resets at midnight UTC.`), { status: 429, code: 'daily_token_limit' });
             }
@@ -550,14 +550,18 @@ export function createNoirServer(options = {}) {
               history.unshift({ role: item.role, text: itemText });
               historyCharacters += itemText.length;
             }
-            const instructions = systemInstructions(timeZone);
-            const inputCharacters = instructions.length + history.reduce((count, item) => count + item.text.length, 0);
-            const estimatedInputTokens = Math.ceil(inputCharacters / 3) + history.length * 2;
-            const outputBudget = remainingTokens - estimatedInputTokens;
-            if (outputBudget < 1) {
-              throw Object.assign(new Error(`Your remaining daily token budget is too small for that prompt. The ${config.dailyTokenLimit} token limit resets at midnight UTC.`), { status: 429, code: 'daily_token_limit' });
+            let outputBudget = config.maxOutputTokens;
+            if (config.dailyTokenLimit) {
+              const instructions = systemInstructions(timeZone);
+              const inputCharacters = instructions.length + history.reduce((count, item) => count + item.text.length, 0);
+              const estimatedInputTokens = Math.ceil(inputCharacters / 3) + history.length * 2;
+              outputBudget = remainingTokens - estimatedInputTokens;
+              if (outputBudget < 1) {
+                throw Object.assign(new Error(`Your remaining daily token budget is too small for that prompt. The ${config.dailyTokenLimit} token limit resets at midnight UTC.`), { status: 429, code: 'daily_token_limit' });
+              }
+              outputBudget = Math.min(config.maxOutputTokens, outputBudget);
             }
-            const generated = await generate(history, timeZone, Math.min(config.maxOutputTokens, outputBudget));
+            const generated = await generate(history, timeZone, outputBudget);
             const usage = normalizedUsage(generated.usage || {});
             if (!generated.text || !usage.inputTokens && !usage.outputTokens) throw Object.assign(new Error('The provider did not return a response with token usage.'), { status: 502, code: 'invalid_provider_response' });
             chat.title = chat.messages.length ? chat.title : (message.replace(/\s+/g, ' ').slice(0, 42) || 'New chat');
