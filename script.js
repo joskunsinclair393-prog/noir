@@ -579,7 +579,6 @@
       $('profileSignOut').hidden = true;
     }
     $('profileWrap').hidden = false;
-    }
   }
 
   async function initialize() {
