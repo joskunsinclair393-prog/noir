@@ -111,8 +111,8 @@
   async function showAuthScreen() {
     app.hidden = true;
     authGate.hidden = false;
-    $('accountEmail').hidden = true;
-    $('signOut').hidden = true;
+    $('profileWrap').hidden = true;
+    $('profileSignOut').hidden = true;
     if (!authConfig?.configured) {
       setAuthFeedback('Account sign-in is not configured yet. The site owner must add the Supabase project URL and public key, then enable Google, Apple, or GitHub in the provider settings.');
       document.querySelectorAll('.auth-provider, #authSubmit, #authEmail, #authPassword').forEach(control => { control.disabled = true; });
@@ -147,7 +147,7 @@
     } catch (error) { setAuthFeedback(error.message); }
     finally { submit.disabled = !authConfig?.configured; }
   });
-  $('signOut').addEventListener('click', async () => {
+  $('profileSignOut').addEventListener('click', async () => {
     if (authConfig?.configured && authSession?.access_token) {
       try { await fetch(`${authConfig.supabaseUrl}/auth/v1/logout`, { method: 'POST', headers: { apikey: authConfig.supabaseAnonKey, authorization: `Bearer ${authSession.access_token}` } }); } catch {}
     }
@@ -178,17 +178,15 @@
   function updateSession(data) {
     sessionInfo = data;
     const usage = data.usage || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-    $('tokenTotal').textContent = numberFormat.format(usage.totalTokens || 0);
-    $('dailyTokenTotal').textContent = numberFormat.format(data.dailyTokens || 0);
-    $('dailyTokenCaption').textContent = data.dailyTokenLimit ? `of ${numberFormat.format(data.dailyTokenLimit)} tokens today` : 'tokens today · no daily cap';
-    $('providerLabel').textContent = `${data.provider.label} · ${data.provider.model}`;
+    $('profileLifetimeTokens').textContent = numberFormat.format(usage.totalTokens || 0);
+    $('profileDailyTokens').textContent = numberFormat.format(data.dailyTokens || 0);
     $('creditsPanel').hidden = !data.creditsEnabled;
     if (data.creditsEnabled) $('creditBalance').textContent = data.creditsUnlimited ? 'Unlimited' : numberFormat.format(data.credits || 0);
 
     if (data.provider.ready) showNotice('', false);
-    else if (!data.provider.keyConfigured) showNotice(`NOIR can’t generate AI replies yet: add a ${data.provider.label} API key to .env, then restart the server. Requests stay paused until you separately opt in after reviewing costs.`);
-    else if (!data.provider.requestsEnabled) showNotice('AI requests are paused to prevent unexpected charges. Review your provider’s pricing, then enable requests in the local .env file.');
-    else showNotice(`Check the ${data.provider.label} model name and API access in the .env file.`);
+    else if (!data.provider.keyConfigured) showNotice('NOIR’s AI service is not configured yet. Please try again later.');
+    else if (!data.provider.requestsEnabled) showNotice('AI requests are temporarily unavailable. Please try again later.');
+    else showNotice('NOIR could not connect to its AI service. Please try again later.');
   }
 
   function rememberActiveChat(id) {
@@ -335,7 +333,6 @@
     bubble.className = 'bubble';
     bubble.textContent = text;
     row.append(bubble);
-    if (usage && role === 'user') addUsageMeta(row, usage);
     messages.append(row);
     if (shouldScroll) scrollMessagesToBottom();
     return row;
@@ -483,6 +480,8 @@
     if (event.key === 'Escape') {
       if (!settingsBackdrop.hidden) closeSettings();
       else closeAttachMenu();
+      $('profileMenu').hidden = true;
+      $('profileTrigger').setAttribute('aria-expanded', 'false');
       document.querySelectorAll('.chat-options-menu').forEach(menu => { menu.hidden = true; });
       document.querySelectorAll('.chat-more-button').forEach(button => button.setAttribute('aria-expanded', 'false'));
     }
@@ -542,6 +541,17 @@
     }
   }
 
+  $('profileTrigger').addEventListener('click', event => {
+    event.stopPropagation();
+    const open = $('profileMenu').hidden;
+    $('profileMenu').hidden = !open;
+    $('profileTrigger').setAttribute('aria-expanded', String(open));
+  });
+  document.addEventListener('click', event => {
+    if (event.target.closest('.profile-wrap')) return;
+    $('profileMenu').hidden = true;
+    $('profileTrigger').setAttribute('aria-expanded', 'false');
+  });
   $('send').addEventListener('click', () => send());
   input.addEventListener('input', resize);
   input.addEventListener('keydown', event => {
@@ -562,9 +572,13 @@
     if (rememberedChat && chats.some(chat => chat.id === rememberedChat)) await openChat(rememberedChat);
     else startNewChat(false);
     if (authConfig?.required) {
-      $('accountEmail').textContent = data.user?.email || 'Signed in';
-      $('accountEmail').hidden = false;
-      $('signOut').hidden = false;
+      $('profileEmail').textContent = data.user?.email || 'Signed in';
+      $('profileSignOut').hidden = false;
+    } else {
+      $('profileEmail').textContent = 'Local session';
+      $('profileSignOut').hidden = true;
+    }
+    $('profileWrap').hidden = false;
     }
   }
 
