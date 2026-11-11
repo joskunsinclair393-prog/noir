@@ -180,7 +180,7 @@
     const usage = data.usage || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     $('tokenTotal').textContent = numberFormat.format(usage.totalTokens || 0);
     $('dailyTokenTotal').textContent = numberFormat.format(data.dailyTokens || 0);
-    $('dailyTokenLimit').textContent = numberFormat.format(data.dailyTokenLimit || 50);
+    $('dailyTokenCaption').textContent = data.dailyTokenLimit ? `of ${numberFormat.format(data.dailyTokenLimit)} tokens today` : 'tokens today · no daily cap';
     $('providerLabel').textContent = `${data.provider.label} · ${data.provider.model}`;
     $('creditsPanel').hidden = !data.creditsEnabled;
     if (data.creditsEnabled) $('creditBalance').textContent = data.creditsUnlimited ? 'Unlimited' : numberFormat.format(data.credits || 0);
