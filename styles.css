@@ -274,3 +274,25 @@ body.light-theme .disclaimer{color:#77777e}
 .signout-button{height:30px;padding:0 9px;border:1px solid #303034;border-radius:8px;background:#111;color:#aaa;font-size:10px}
 .signout-button:hover{color:#fff;border-color:#555}
 @media(max-width:520px){.auth-gate{padding:16px}.auth-card{padding:28px 22px 22px}.account-email{display:none!important}}
+
+.profile-wrap{position:relative;flex:none}
+.profile-trigger{display:grid;place-items:center;width:35px;height:35px;padding:7px;border:1px solid #303033;border-radius:10px;background:#111;color:#aaa;transition:.18s}
+.profile-trigger svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.profile-trigger:hover,.profile-trigger[aria-expanded="true"]{border-color:#555;background:#1d1d1f;color:#fff}
+.profile-menu{position:absolute;z-index:30;top:calc(100% + 10px);right:0;width:min(285px,calc(100vw - 28px));padding:13px;border:1px solid #37373a;border-radius:13px;background:#171719;box-shadow:0 16px 40px #000a;color:#eee}
+.profile-menu[hidden]{display:none}
+.profile-menu-heading{font-size:13px;font-weight:650}
+.profile-email{margin:3px 0 12px;color:#888;font-size:11px;overflow-wrap:anywhere}
+.profile-usage{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 1px;border-top:1px solid #2b2b2e;color:#aaa;font-size:11px}
+.profile-usage b{color:#f5f5f5;font-variant-numeric:tabular-nums}
+.profile-signout{width:100%;margin-top:8px;padding:9px 10px;border:1px solid #353538;border-radius:8px;background:#202023;color:#eee;text-align:left;font-size:11px}
+.profile-signout:hover{background:#29292c;border-color:#555}
+.profile-signout[hidden]{display:none}
+body.light-theme .profile-trigger{border-color:#dedee1;background:#fff;color:#66666d}
+body.light-theme .profile-trigger:hover,body.light-theme .profile-trigger[aria-expanded="true"]{border-color:#bdbdc2;background:#f0f0f2;color:#202023}
+body.light-theme .profile-menu{border-color:#dedee1;background:#fff;box-shadow:0 16px 40px #0002;color:#202023}
+body.light-theme .profile-email{color:#77777e}
+body.light-theme .profile-usage{border-color:#e5e5e8;color:#68686f}
+body.light-theme .profile-usage b{color:#202023}
+body.light-theme .profile-signout{border-color:#dedee1;background:#f5f5f6;color:#202023}
+body.light-theme .profile-signout:hover{background:#e9e9ec;border-color:#bdbdc2}
