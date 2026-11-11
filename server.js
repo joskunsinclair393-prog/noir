@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -158,6 +158,45 @@ function readJsonBody(request, maxBytes = 96 * 1024) {
   });
 }
 
+function readRawBody(request, maxBytes = 1024 * 1024) {
+  return new Promise((resolveBody, reject) => {
+    let size = 0;
+    const chunks = [];
+    request.on('data', chunk => {
+      size += chunk.length;
+      if (size > maxBytes) return reject(Object.assign(new Error('Webhook body is too large.'), { status: 413 }));
+      chunks.push(chunk);
+    });
+    request.on('end', () => resolveBody(Buffer.concat(chunks)));
+    request.on('error', reject);
+  });
+}
+
+export function verifyStripeSignature(payload, signatureHeader, endpointSecret, now = Date.now()) {
+  if (!Buffer.isBuffer(payload) || !endpointSecret || typeof signatureHeader !== 'string') return false;
+  const fields = signatureHeader.split(',').map(part => part.split('=', 2));
+  const timestamp = fields.find(([key]) => key === 't')?.[1];
+  const signatures = fields.filter(([key]) => key === 'v1').map(([, value]) => value).filter(value => /^[a-f0-9]{64}$/i.test(value || ''));
+  if (!/^\d+$/.test(timestamp || '') || !signatures.length || Math.abs(Math.floor(now / 1000) - Number(timestamp)) > 300) return false;
+  const expected = createHmac('sha256', endpointSecret).update(`${timestamp}.`).update(payload).digest();
+  return signatures.some(signature => {
+    const candidate = Buffer.from(signature, 'hex');
+    return candidate.length === expected.length && timingSafeEqual(candidate, expected);
+  });
+}
+
+function utcDateKey(date = new Date()) {
+  return date.toISOString().slice(0, 10);
+}
+
+function dailyTokenUsage(data, now = new Date()) {
+  const date = utcDateKey(now);
+  const saved = data.dailyTokenUsage;
+  return saved?.date === date && Number.isFinite(saved.tokens)
+    ? { date, tokens: Math.max(0, Math.floor(saved.tokens)) }
+    : { date, tokens: 0 };
+}
+
 function sendJson(response, status, data, headers = {}) {
   const body = JSON.stringify(data);
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers });
@@ -199,24 +238,6 @@ function currentDateForTimeZone(timeZone) {
   return `${values.weekday}, ${values.year}-${values.month}-${values.day}`;
 }
 
-function systemInstructions(timeZone) {
-  return `Helpful, accurate, concise assistant. Admit uncertainty. Today in ${timeZone}: ${currentDateForTimeZone(timeZone)}. Use for date questions.`;
-}
-
-function dateKeyForTimeZone(timeZone) {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function dailyTokenUsage(data) {
-  const today = dateKeyForTimeZone('UTC');
-  const saved = data.dailyTokenUsage;
-  return saved?.date === today && Number.isFinite(saved.tokens)
-    ? { date: today, tokens: Math.max(0, Math.floor(saved.tokens)) }
-    : { date: today, tokens: 0 };
-}
-
 function publicError(error) {
   if (error instanceof ProviderError) {
     if (error.status === 429) return { status: 429, message: 'The AI provider rate limit was reached. Please try again shortly.', code: 'provider_rate_limit' };
@@ -224,7 +245,7 @@ function publicError(error) {
     return { status: 502, message: 'The AI provider could not complete this request. Check the provider status and try again.', code: 'provider_error' };
   }
   if (error.status === 400 || error.status === 401 || error.status === 404 || error.status === 413 || error.status === 429 || error.status === 402 || error.status === 403 || error.status === 503) {
-    return { status: error.status, message: error.message, code: error.code };
+    return { status: error.status, message: error.message, code: error.code, details: error.details };
   }
   return { status: 500, message: 'Something went wrong on the NOIR server. Please try again.', code: 'server_error' };
 }
@@ -254,6 +275,12 @@ export function createNoirServer(options = {}) {
     supabaseUrl: String(env.supabaseUrl ?? process.env.SUPABASE_URL ?? '').replace(/\/$/, ''),
     supabaseAnonKey: String(env.supabaseAnonKey ?? process.env.SUPABASE_ANON_KEY ?? ''),
     supabaseServiceRoleKey: String(env.supabaseServiceRoleKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''),
+    stripeSecretKey: String(env.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY ?? '').trim(),
+    stripeWebhookSecret: String(env.stripeWebhookSecret ?? process.env.STRIPE_WEBHOOK_SECRET ?? '').trim(),
+    stripePriceId: String(env.stripePriceId ?? process.env.STRIPE_PRICE_ID ?? '').trim(),
+    stripeMode: String(env.stripeMode ?? process.env.STRIPE_MODE ?? 'test').trim().toLowerCase(),
+    stripeLiveEnabled: env.stripeLiveEnabled ?? bool(process.env.ALLOW_LIVE_STRIPE, false),
+    publicAppUrl: String(env.publicAppUrl ?? process.env.PUBLIC_APP_URL ?? '').trim().replace(/\/$/, ''),
   };
   const dataFile = resolve(options.dataFile || join(ROOT, 'data', 'noir-data.json'));
   mkdirSync(dirname(dataFile), { recursive: true });
@@ -372,6 +399,175 @@ export function createNoirServer(options = {}) {
     if (!response.ok) throw Object.assign(new Error('NOIR could not save your chat. Check the database setup and try again.'), { status: 503, code: 'storage_unavailable' });
   }
 
+  function stripeModeReady() {
+    if (!config.stripeSecretKey || !config.stripeWebhookSecret || !config.stripePriceId || !config.publicAppUrl) return false;
+    if (config.stripeMode === 'test') return config.stripeSecretKey.startsWith('sk_test_');
+    return config.stripeMode === 'live' && config.stripeLiveEnabled && config.stripeSecretKey.startsWith('sk_live_');
+  }
+
+  function requireBillingSetup() {
+    if (!config.authRequired || !config.supabaseServiceRoleKey) throw Object.assign(new Error('NOIR Plus requires account sign-in and server-side Supabase storage.'), { status: 503, code: 'billing_storage_not_configured' });
+    if (!stripeModeReady()) throw Object.assign(new Error('NOIR Plus checkout is not configured for Stripe test mode yet.'), { status: 503, code: 'billing_not_configured' });
+    let publicUrl;
+    try { publicUrl = new URL(config.publicAppUrl); } catch { publicUrl = null; }
+    if (!publicUrl || publicUrl.username || publicUrl.password || (config.stripeMode === 'live' && publicUrl.protocol !== 'https:') || (config.stripeMode === 'test' && !['http:', 'https:'].includes(publicUrl.protocol))) {
+      throw Object.assign(new Error('Set PUBLIC_APP_URL to NOIR’s trusted website URL.'), { status: 503, code: 'billing_url_not_configured' });
+    }
+  }
+
+  async function stripeApi(path, params = null, method = 'POST') {
+    if (!stripeModeReady()) throw Object.assign(new Error('NOIR Plus is not configured yet.'), { status: 503, code: 'billing_not_configured' });
+    const headers = { authorization: `Bearer ${config.stripeSecretKey}` };
+    const request = { method, headers };
+    if (params && method !== 'GET') {
+      headers['content-type'] = 'application/x-www-form-urlencoded';
+      request.body = new URLSearchParams(params).toString();
+    }
+    const response = await (options.fetchImpl || fetch)(`https://api.stripe.com${path}`, request);
+    let data = {};
+    try { data = await response.json(); } catch {}
+    if (!response.ok) {
+      console.error('[NOIR] Stripe API request failed:', response.status, data?.error?.type || 'unknown');
+      throw Object.assign(new Error('The billing service could not complete that request. Please try again.'), { status: 502, code: 'billing_provider_error' });
+    }
+    return data;
+  }
+
+  async function verifyNoirPlusPrice() {
+    const price = await stripeApi(`/v1/prices/${encodeURIComponent(config.stripePriceId)}`, null, 'GET');
+    if (!price.active || price.currency !== 'aud' || price.unit_amount !== 1500 || price.recurring?.interval !== 'month' || price.recurring?.interval_count !== 1) {
+      throw Object.assign(new Error('The configured Stripe price must be active and exactly $15 AUD per month.'), { status: 503, code: 'billing_price_mismatch' });
+    }
+    return price;
+  }
+
+  async function getSubscriptionRow(userId) {
+    if (!config.supabaseServiceRoleKey) return null;
+    const query = new URLSearchParams({ user_id: `eq.${userId}`, select: 'user_id,stripe_customer_id,stripe_subscription_id,status,current_period_start,current_period_end,renewal_date,cancel_at_period_end,cancel_at,canceled_at,last_stripe_event_created,updated_at' });
+    let response;
+    try {
+      response = await (options.fetchImpl || fetch)(`${config.supabaseUrl}/rest/v1/noir_subscriptions?${query}`, {
+        headers: { apikey: config.supabaseServiceRoleKey, authorization: `Bearer ${config.supabaseServiceRoleKey}` },
+      });
+    } catch { throw Object.assign(new Error('NOIR could not check subscription status.'), { status: 503, code: 'billing_storage_unavailable' }); }
+    if (!response.ok) throw Object.assign(new Error('NOIR subscription storage is not ready. Apply the NOIR Plus database setup and try again.'), { status: 503, code: 'billing_storage_unavailable' });
+    const rows = await response.json().catch(() => []);
+    return rows[0] || null;
+  }
+
+  async function findSubscriptionRow(field, value) {
+    if (!config.supabaseServiceRoleKey || !value) return null;
+    const query = new URLSearchParams({ [field]: `eq.${value}`, select: 'user_id,stripe_customer_id,stripe_subscription_id,status,current_period_start,current_period_end,renewal_date,cancel_at_period_end,cancel_at,canceled_at,last_stripe_event_created,updated_at', limit: '1' });
+    const response = await (options.fetchImpl || fetch)(`${config.supabaseUrl}/rest/v1/noir_subscriptions?${query}`, {
+      headers: { apikey: config.supabaseServiceRoleKey, authorization: `Bearer ${config.supabaseServiceRoleKey}` },
+    });
+    if (!response.ok) throw Object.assign(new Error('NOIR could not check subscription status.'), { status: 503, code: 'billing_storage_unavailable' });
+    return (await response.json().catch(() => []))[0] || null;
+  }
+
+  function subscriptionIsActive(row, now = Date.now()) {
+    if (!row || !['active', 'trialing'].includes(row.status)) return false;
+    const periodEnd = row.current_period_end ? Date.parse(row.current_period_end) : NaN;
+    return Number.isFinite(periodEnd) && periodEnd > now;
+  }
+
+  function subscriptionSummary(row) {
+    return {
+      isPlus: subscriptionIsActive(row),
+      status: row?.status || 'free',
+      currentPeriodEnd: row?.current_period_end || null,
+      renewalDate: row?.renewal_date || row?.current_period_end || null,
+      cancelAtPeriodEnd: Boolean(row?.cancel_at_period_end),
+      manageAvailable: Boolean(row?.stripe_customer_id && stripeModeReady()),
+    };
+  }
+
+  async function saveStripeSubscription(subscription, event, fallbackUserId = null) {
+    const subscriptionId = typeof subscription.id === 'string' ? subscription.id : '';
+    const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
+    let existing = subscriptionId ? await findSubscriptionRow('stripe_subscription_id', subscriptionId) : null;
+    const userId = subscription.metadata?.supabase_user_id || fallbackUserId || existing?.user_id;
+    if (!userId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+      throw Object.assign(new Error('The verified Stripe event is missing its NOIR account reference.'), { status: 400, code: 'billing_account_reference_missing' });
+    }
+    existing ||= await getSubscriptionRow(userId);
+    if (existing && Number(existing.last_stripe_event_created || 0) > Number(event.created || 0)) return;
+    const item = subscription.items?.data?.[0] || {};
+    const periodStart = item.current_period_start ?? subscription.current_period_start ?? null;
+    const periodEnd = item.current_period_end ?? subscription.current_period_end ?? null;
+    const toIso = value => Number.isFinite(Number(value)) && Number(value) > 0 ? new Date(Number(value) * 1000).toISOString() : null;
+    const data = {
+      user_id: userId,
+      stripe_customer_id: customerId || existing?.stripe_customer_id || null,
+      stripe_subscription_id: subscriptionId || existing?.stripe_subscription_id || null,
+      status: ['incomplete', 'incomplete_expired', 'trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused'].includes(subscription.status) ? subscription.status : 'inactive',
+      current_period_start: toIso(periodStart),
+      current_period_end: toIso(periodEnd),
+      renewal_date: toIso(periodEnd),
+      cancel_at_period_end: Boolean(subscription.cancel_at_period_end || subscription.cancel_at),
+      cancel_at: toIso(subscription.cancel_at),
+      canceled_at: toIso(subscription.canceled_at),
+      last_stripe_event_created: Number(event.created || 0),
+      updated_at: new Date().toISOString(),
+    };
+    const url = `${config.supabaseUrl}/rest/v1/noir_subscriptions?on_conflict=user_id`;
+    const response = await (options.fetchImpl || fetch)(url, {
+      method: 'POST',
+      headers: { apikey: config.supabaseServiceRoleKey, authorization: `Bearer ${config.supabaseServiceRoleKey}`, 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw Object.assign(new Error('NOIR could not save the verified subscription update.'), { status: 503, code: 'billing_storage_unavailable' });
+  }
+
+  async function stripeEventWasProcessed(eventId) {
+    const query = new URLSearchParams({ event_id: `eq.${eventId}`, select: 'event_id', limit: '1' });
+    const response = await (options.fetchImpl || fetch)(`${config.supabaseUrl}/rest/v1/noir_stripe_events?${query}`, {
+      headers: { apikey: config.supabaseServiceRoleKey, authorization: `Bearer ${config.supabaseServiceRoleKey}` },
+    });
+    if (!response.ok) throw Object.assign(new Error('NOIR could not check billing event status.'), { status: 503, code: 'billing_storage_unavailable' });
+    return (await response.json().catch(() => [])).length > 0;
+  }
+
+  async function recordStripeEvent(event) {
+    const response = await (options.fetchImpl || fetch)(`${config.supabaseUrl}/rest/v1/noir_stripe_events?on_conflict=event_id`, {
+      method: 'POST',
+      headers: { apikey: config.supabaseServiceRoleKey, authorization: `Bearer ${config.supabaseServiceRoleKey}`, 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' },
+      body: JSON.stringify({ event_id: event.id, event_type: event.type, stripe_created: event.created }),
+    });
+    if (!response.ok) throw Object.assign(new Error('NOIR could not record the billing event.'), { status: 503, code: 'billing_storage_unavailable' });
+  }
+
+  async function handleStripeEvent(event) {
+    if (await stripeEventWasProcessed(event.id)) return;
+    const object = event.data?.object;
+    if (!object) throw Object.assign(new Error('Stripe sent an invalid event.'), { status: 400, code: 'invalid_billing_event' });
+    const subscriptionEvents = new Set(['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'customer.subscription.paused', 'customer.subscription.resumed']);
+    let subscription = null;
+    let fallbackUserId = null;
+    if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+      const subscriptionId = typeof object.subscription === 'string' ? object.subscription : object.subscription?.id;
+      if (object.mode === 'subscription' && subscriptionId) {
+        fallbackUserId = object.client_reference_id || object.metadata?.supabase_user_id || null;
+        subscription = await stripeApi(`/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, null, 'GET');
+      }
+    } else if (subscriptionEvents.has(event.type)) {
+      const subscriptionId = object.id;
+      if (event.type === 'customer.subscription.deleted') subscription = object;
+      else subscription = await stripeApi(`/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, null, 'GET');
+    } else if (event.type === 'invoice.payment_failed' || event.type === 'invoice.paid') {
+      const subscriptionId = object.subscription || object.parent?.subscription_details?.subscription || null;
+      if (subscriptionId) subscription = await stripeApi(`/v1/subscriptions/${encodeURIComponent(typeof subscriptionId === 'string' ? subscriptionId : subscriptionId.id)}`, null, 'GET');
+    }
+    if (subscription) {
+      if (event.type.startsWith('invoice.') && !subscription.metadata?.supabase_user_id) {
+        const byId = await findSubscriptionRow('stripe_subscription_id', subscription.id);
+        if (byId) subscription.metadata = { ...(subscription.metadata || {}), supabase_user_id: byId.user_id };
+      }
+      await saveStripeSubscription(subscription, event, fallbackUserId);
+    }
+    await recordStripeEvent(event);
+  }
+
   const requestTimes = new Map();
   const publicRequestTimes = [];
   const locks = new Map();
@@ -387,6 +583,10 @@ export function createNoirServer(options = {}) {
       release();
       if (locks.get(key) === queued) locks.delete(key);
     }
+  }
+
+  async function withBillingLock(key, task) {
+    return withSessionLock(`billing:${key}`, task);
   }
 
   function checkRateLimit(key, bypassAccountLimit = false) {
@@ -417,13 +617,14 @@ export function createNoirServer(options = {}) {
     };
   }
 
-  function sessionSummary(data, user = null) {
+  function sessionSummary(data, user = null, subscription = null) {
     const daily = dailyTokenUsage(data);
     return {
       usage: data.usage,
       dailyTokens: daily.tokens,
       dailyTokenLimit: config.dailyTokenLimit || null,
       dailyTokenDate: daily.date,
+      subscription: subscriptionSummary(subscription),
       creditsEnabled: Boolean(config.creditsEnabled),
       credits: config.creditsEnabled ? data.credits : null,
       creditsUnlimited: hasUnlimitedAccess(user),
@@ -442,12 +643,12 @@ export function createNoirServer(options = {}) {
     try { return new URL(origin).host === request.headers.host; } catch { return false; }
   }
 
-  async function generate(messages, timeZone = 'UTC', maxOutputTokens = config.maxOutputTokens) {
+  async function generate(messages, timeZone = 'UTC', outputTokenLimit = config.maxOutputTokens) {
     const args = {
       model: config.model,
       messages,
-      instructions: systemInstructions(timeZone),
-      maxOutputTokens,
+      instructions: `You are NOIR, a helpful, thoughtful AI assistant. Give accurate, clear answers with natural conversation. If you are unsure, say so. Use concise structure when it helps. The current date in the user's local timezone (${timeZone}) is ${currentDateForTimeZone(timeZone)}. When asked for today's date or current day, use this date.`,
+      maxOutputTokens: outputTokenLimit,
       reasoningEffort: config.reasoningEffort,
       fetchImpl: options.fetchImpl || fetch,
     };
@@ -481,6 +682,16 @@ export function createNoirServer(options = {}) {
 
     const url = new URL(request.url, `http://${request.headers.host || '127.0.0.1'}`);
     try {
+      if (request.method === 'POST' && url.pathname === '/api/stripe/webhook') {
+        if (!stripeModeReady() || !config.supabaseServiceRoleKey) return sendJson(response, 503, { error: 'NOIR billing is not configured.', code: 'billing_not_configured' });
+        const payload = await readRawBody(request);
+        if (!verifyStripeSignature(payload, request.headers['stripe-signature'], config.stripeWebhookSecret)) return sendJson(response, 400, { error: 'Invalid Stripe webhook signature.', code: 'invalid_webhook_signature' });
+        let event;
+        try { event = JSON.parse(payload.toString('utf8')); } catch { return sendJson(response, 400, { error: 'Invalid Stripe event payload.', code: 'invalid_webhook_payload' }); }
+        if (!event?.id || !event?.type || !Number.isFinite(event.created)) return sendJson(response, 400, { error: 'Invalid Stripe event payload.', code: 'invalid_webhook_payload' });
+        await handleStripeEvent(event);
+        return sendJson(response, 200, { received: true });
+      }
       if (url.pathname.startsWith('/api/')) {
         if (request.method !== 'GET' && !sameOrigin(request)) return sendJson(response, 403, { error: 'Cross-origin requests are not allowed.' });
         if (request.method === 'GET' && url.pathname === '/api/auth-config') {
@@ -491,8 +702,51 @@ export function createNoirServer(options = {}) {
         const getSession = (req, res) => config.authRequired ? authenticatedSessionFor(accountUser) : Promise.resolve(sessionFor(req, res));
         if (request.method === 'GET' && url.pathname === '/api/bootstrap') {
           const { data, user } = await getSession(request, response);
-          const timeZone = resolveTimeZone(url.searchParams.get('timeZone'));
-          return sendJson(response, 200, { session: sessionSummary(data, user), user: user ? { email: user.email } : null, chats: data.chats.map(chatSummary).sort((a, b) => b.updatedAt - a.updatedAt) });
+          const subscription = user ? await getSubscriptionRow(user.id) : null;
+          return sendJson(response, 200, { session: sessionSummary(data, user, subscription), user: user ? { email: user.email } : null, chats: data.chats.map(chatSummary).sort((a, b) => b.updatedAt - a.updatedAt) });
+        }
+        if (request.method === 'GET' && url.pathname === '/api/subscription') {
+          requireBillingSetup();
+          const { user } = await getSession(request, response);
+          if (!user) throw Object.assign(new Error('Sign in before checking NOIR Plus.'), { status: 401, code: 'authentication_required' });
+          const subscription = await getSubscriptionRow(user.id);
+          return sendJson(response, 200, { subscription: subscriptionSummary(subscription) });
+        }
+        if (request.method === 'POST' && url.pathname === '/api/plus/checkout') {
+          requireBillingSetup();
+          const { user } = await getSession(request, response);
+          if (!user) throw Object.assign(new Error('Sign in before upgrading to NOIR Plus.'), { status: 401, code: 'authentication_required' });
+          const result = await withBillingLock(user.id, async () => {
+            const current = await getSubscriptionRow(user.id);
+            if (subscriptionIsActive(current)) throw Object.assign(new Error('Your account already has NOIR Plus.'), { status: 409, code: 'already_plus' });
+            await verifyNoirPlusPrice();
+            const params = {
+              mode: 'subscription',
+              'line_items[0][price]': config.stripePriceId,
+              'line_items[0][quantity]': '1',
+              client_reference_id: user.id,
+              'metadata[supabase_user_id]': user.id,
+              'subscription_data[metadata][supabase_user_id]': user.id,
+              success_url: `${config.publicAppUrl}/?plus=success`,
+              cancel_url: `${config.publicAppUrl}/?plus=canceled`,
+            };
+            if (current?.stripe_customer_id) params.customer = current.stripe_customer_id;
+            else if (user.email) params.customer_email = user.email;
+            const checkout = await stripeApi('/v1/checkout/sessions', params);
+            if (typeof checkout.url !== 'string' || !checkout.url.startsWith('https://checkout.stripe.com/')) throw Object.assign(new Error('Stripe did not return a secure Checkout link.'), { status: 502, code: 'billing_checkout_failed' });
+            return { url: checkout.url };
+          });
+          return sendJson(response, 200, result);
+        }
+        if (request.method === 'POST' && url.pathname === '/api/plus/manage') {
+          requireBillingSetup();
+          const { user } = await getSession(request, response);
+          if (!user) throw Object.assign(new Error('Sign in before managing your subscription.'), { status: 401, code: 'authentication_required' });
+          const subscription = await getSubscriptionRow(user.id);
+          if (!subscription?.stripe_customer_id) throw Object.assign(new Error('There is no NOIR Plus subscription to manage.'), { status: 404, code: 'subscription_not_found' });
+          const portal = await stripeApi('/v1/billing_portal/sessions', { customer: subscription.stripe_customer_id, return_url: `${config.publicAppUrl}/?settings=plus` });
+          if (typeof portal.url !== 'string' || !portal.url.startsWith('https://billing.stripe.com/')) throw Object.assign(new Error('Stripe did not return a secure subscription-management link.'), { status: 502, code: 'billing_portal_failed' });
+          return sendJson(response, 200, { url: portal.url });
         }
         if (request.method === 'GET' && url.pathname.startsWith('/api/chats/')) {
           const { data } = await getSession(request, response);
@@ -518,49 +772,67 @@ export function createNoirServer(options = {}) {
         if (request.method === 'POST' && url.pathname === '/api/chat') {
           if (!String(request.headers['content-type'] || '').includes('application/json')) return sendJson(response, 415, { error: 'Send JSON requests only.' });
           const body = await readJsonBody(request);
-          const message = typeof body.message === 'string' ? body.message.trim() : '';
+          let message = typeof body.message === 'string' ? body.message.trim() : '';
+          const regenerate = body.regenerate === true;
+          const edit = body.edit === true;
           const timeZone = resolveTimeZone(body.timeZone);
           if (!message) return sendJson(response, 400, { error: 'Write a message before sending.' });
           if (message.length > 12_000) return sendJson(response, 413, { error: 'Messages must be 12,000 characters or fewer.' });
           const { key, data, user } = await getSession(request, response);
-          checkRateLimit(key, hasUnlimitedAccess(user));
+          const subscription = user ? await getSubscriptionRow(user.id) : null;
+          const isPlus = subscriptionIsActive(subscription);
+          const unlimitedAccess = hasUnlimitedAccess(user);
+          checkRateLimit(key, unlimitedAccess || isPlus);
           const result = await withSessionLock(key, async () => {
             if (!providerInfo().ready && !options.generate) {
               if (!config.allowRequests) await generate([]);
               if (!providerInfo().keyConfigured) await generate([]);
             }
-            const unlimitedAccess = hasUnlimitedAccess(user);
-            const daily = dailyTokenUsage(data);
-            const remainingTokens = config.dailyTokenLimit ? config.dailyTokenLimit - daily.tokens : Infinity;
-            if (remainingTokens <= 0) {
-              throw Object.assign(new Error(`You’ve used today’s ${config.dailyTokenLimit} token limit. It resets at midnight UTC.`), { status: 429, code: 'daily_token_limit' });
-            }
-            if (config.creditsEnabled && !unlimitedAccess && data.credits < config.creditsPerMessage) {
+            if (config.creditsEnabled && !unlimitedAccess && !isPlus && data.credits < config.creditsPerMessage) {
               throw Object.assign(new Error('You’re out of NOIR credits. Add credits or turn off the optional credit limit in .env.'), { status: 402, code: 'insufficient_credits' });
+            }
+            const daily = dailyTokenUsage(data);
+            const remainingTokens = isPlus || unlimitedAccess || !config.dailyTokenLimit ? Infinity : config.dailyTokenLimit - daily.tokens;
+            if (remainingTokens <= 0) {
+              const date = new Date(`${daily.date}T00:00:00.000Z`);
+              date.setUTCDate(date.getUTCDate() + 1);
+              throw Object.assign(new Error('You’ve used your free NOIR daily usage. It resets at midnight UTC.'), {
+                status: 429, code: 'daily_token_limit',
+                details: { dailyTokenLimit: config.dailyTokenLimit, dailyTokens: daily.tokens, resetAt: date.toISOString() },
+              });
             }
             const suppliedChatId = typeof body.chatId === 'string' && body.chatId ? body.chatId : null;
             let chat = suppliedChatId ? data.chats.find(item => item.id === suppliedChatId) : null;
             if (suppliedChatId && !chat) throw Object.assign(new Error('Chat not found.'), { status: 404, code: 'chat_not_found' });
+            if (regenerate || edit) {
+              const lastAnswer = chat?.messages.at(-1);
+              const lastPrompt = chat?.messages.at(-2);
+              if (lastAnswer?.role !== 'assistant' || lastPrompt?.role !== 'user') throw Object.assign(new Error('There is no response to update.'), { status: 400, code: 'cannot_regenerate' });
+              if (regenerate) message = lastPrompt.text;
+            }
             const isNewChat = !chat;
             if (isNewChat) chat = { id: randomUUID(), title: 'New chat', updatedAt: Date.now(), totalTokens: 0, messages: [] };
             const history = [];
             let historyCharacters = 0;
-            for (const item of [...chat.messages, { role: 'user', text: message }].slice(-30).reverse()) {
+            const priorMessages = regenerate ? chat.messages.slice(0, -1) : edit ? [...chat.messages.slice(0, -2), { role: 'user', text: message }] : [...chat.messages, { role: 'user', text: message }];
+            for (const item of priorMessages.slice(-30).reverse()) {
               const itemText = String(item.text || '');
               if (history.length && historyCharacters + itemText.length > 24_000) break;
               history.unshift({ role: item.role, text: itemText });
               historyCharacters += itemText.length;
             }
             let outputBudget = config.maxOutputTokens;
-            if (config.dailyTokenLimit) {
-              const instructions = systemInstructions(timeZone);
-              const inputCharacters = instructions.length + history.reduce((count, item) => count + item.text.length, 0);
-              const estimatedInputTokens = Math.ceil(inputCharacters / 3) + history.length * 2;
-              outputBudget = remainingTokens - estimatedInputTokens;
+            if (Number.isFinite(remainingTokens)) {
+              const instructions = `You are NOIR, a helpful, thoughtful AI assistant. Give accurate, clear answers with natural conversation. If you are unsure, say so. Use concise structure when it helps. The current date in the user's local timezone (${timeZone}) is `;
+              const estimatedInputTokens = Math.ceil((instructions.length + history.reduce((count, item) => count + item.text.length, 0)) / 3) + history.length * 2;
+              outputBudget = Math.min(config.maxOutputTokens, remainingTokens - estimatedInputTokens);
               if (outputBudget < 1) {
-                throw Object.assign(new Error(`Your remaining daily token budget is too small for that prompt. The ${config.dailyTokenLimit} token limit resets at midnight UTC.`), { status: 429, code: 'daily_token_limit' });
+                const date = new Date(`${daily.date}T00:00:00.000Z`); date.setUTCDate(date.getUTCDate() + 1);
+                throw Object.assign(new Error('Your remaining free daily usage is too small for that prompt. It resets at midnight UTC.'), {
+                  status: 429, code: 'daily_token_limit',
+                  details: { dailyTokenLimit: config.dailyTokenLimit, dailyTokens: daily.tokens, resetAt: date.toISOString() },
+                });
               }
-              outputBudget = Math.min(config.maxOutputTokens, outputBudget);
             }
             const generated = await generate(history, timeZone, outputBudget);
             const usage = normalizedUsage(generated.usage || {});
@@ -568,17 +840,19 @@ export function createNoirServer(options = {}) {
             chat.title = chat.messages.length ? chat.title : (message.replace(/\s+/g, ' ').slice(0, 42) || 'New chat');
             chat.updatedAt = Date.now();
             chat.totalTokens = (chat.totalTokens || 0) + usage.totalTokens;
-            chat.messages.push({ role: 'user', text: message, usage });
+            if (regenerate) chat.messages.pop();
+            else if (edit) chat.messages.splice(-2, 2, { role: 'user', text: message, usage });
+            else chat.messages.push({ role: 'user', text: message, usage });
             chat.messages.push({ role: 'assistant', text: generated.text, usage });
             if (isNewChat) data.chats.push(chat);
             data.usage.inputTokens += usage.inputTokens;
             data.usage.outputTokens += usage.outputTokens;
             data.usage.totalTokens += usage.totalTokens;
             data.dailyTokenUsage = { date: daily.date, tokens: daily.tokens + usage.totalTokens };
-            if (config.creditsEnabled && !unlimitedAccess) data.credits -= config.creditsPerMessage;
+            if (config.creditsEnabled && !unlimitedAccess && !isPlus) data.credits -= config.creditsPerMessage;
             if (config.authRequired) await persistAccountData(accountUser.id, data);
             else saveStore();
-            return { chat, usage, session: sessionSummary(data, user) };
+            return { chat, usage, session: sessionSummary(data, user, subscription) };
           });
           return sendJson(response, 200, result);
         }
@@ -598,7 +872,7 @@ export function createNoirServer(options = {}) {
     } catch (error) {
       const issue = publicError(error);
       if (issue.status >= 500) console.error('[NOIR]', error.message);
-      return sendJson(response, issue.status, { error: issue.message, code: issue.code });
+      return sendJson(response, issue.status, { error: issue.message, code: issue.code, ...(issue.details ? { details: issue.details } : {}) });
     }
   });
   return server;

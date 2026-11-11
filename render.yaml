@@ -34,6 +34,18 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: STRIPE_MODE
+        value: test
+      - key: ALLOW_LIVE_STRIPE
+        value: "false"
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: ALLOW_BILLABLE_REQUESTS

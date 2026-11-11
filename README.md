@@ -96,9 +96,30 @@ This only allows NOIR to send API requests. It does **not** create a paid accoun
 
 ## Token usage and credits
 
-- NOIR reads input and output token counts from the selected provider’s response metadata. The total and per-message counts are shown in the interface.
-- Daily token usage is tracked and shown, but NOIR imposes no daily token cap by default (`MAX_DAILY_TOKENS=0`). Provider/model quotas and account charges can still apply.
-- Credits are a separate, optional NOIR limit and are disabled by default. Enable them with `ENABLE_CREDITS=true`; a new session then starts with 100 credits and a successful response costs 1 credit.
+- NOIR reads input and output token counts from the selected provider’s response metadata. Total usage is available in the account menu beside Settings; counts are not shown alongside chat messages.
+- Credits are a separate, optional NOIR limit. With the example settings, a new browser session starts with 100 credits and a successful response costs 1 credit. Failed responses do not spend credits.
+
+The chat interface supports searchable saved conversations, Markdown-style response formatting, copyable code blocks, and edit/regenerate controls for the latest turn. Appearance, compact messages, prompt suggestions, and Enter-to-send preferences are saved in the browser.
+
+## NOIR Plus billing (Stripe test mode)
+
+NOIR Plus is **$15 AUD/month**, billed monthly by Stripe Checkout. The server verifies webhook signatures and stores subscription state in the private `noir_subscriptions` table. A successful browser redirect alone never grants Plus. Cancellation and billing changes are handled through Stripe’s hosted customer portal and verified webhook events. NOIR does not receive or store card numbers.
+
+The daily free quota remains controlled by `MAX_DAILY_TOKENS`; do not change its existing value when enabling Plus. A value of `0` disables NOIR's quota. Plus removes only NOIR’s daily quota, optional per-account throttle, and optional NOIR credit cap. Provider quotas, model availability, safety systems, and shared service fair-use safeguards continue to apply. If a payment becomes past due, Plus access pauses until Stripe confirms the subscription is active again. A cancellation scheduled at the end of a period remains active until that period ends.
+
+To configure payments safely:
+
+1. Create or use a Stripe account **in test mode**. Add a recurring product price of exactly **$15 AUD every month**, then copy its `price_...` ID.
+2. Copy `.env.example` to `.env`. Set `STRIPE_MODE=test`, `STRIPE_SECRET_KEY` to a test secret key beginning `sk_test_`, `STRIPE_PRICE_ID` to the test price ID, and `PUBLIC_APP_URL` to the URL NOIR is running on. `ALLOW_LIVE_STRIPE` must remain `false`.
+3. Add `https://YOUR-NOIR-HOST/api/stripe/webhook` as a webhook destination in the Stripe **test** dashboard. Subscribe it to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.paused`, `customer.subscription.resumed`, `invoice.paid`, and `invoice.payment_failed`. Copy its `whsec_...` signing secret to `STRIPE_WEBHOOK_SECRET`.
+4. Apply the `supabase/schema.sql` update (or the `noir_plus_billing_setup` migration) so the backend can save verified subscription and webhook state. The subscription tables have RLS enabled and grant access only to the server role.
+5. In Stripe test mode, complete Checkout using a Stripe test card (for example `4242 4242 4242 4242`, any future expiry and CVC). Use Stripe’s test dashboard/portal to test cancellation, renewal, and failed payments. Test values do not move real funds. See [Stripe’s testing guide](https://docs.stripe.com/testing) and [subscription testing guide](https://docs.stripe.com/billing/testing).
+
+For local webhooks, install Stripe CLI and run `stripe listen --forward-to 127.0.0.1:3000/api/stripe/webhook`; put the signing secret printed by the CLI into `STRIPE_WEBHOOK_SECRET`. This CLI signing secret is different from a Dashboard endpoint secret. Stripe’s test webhook events and local mock tests never use live payment keys.
+
+The customer portal must be enabled in the same Stripe test environment. Configure its subscription cancellation and payment-method features in Stripe Dashboard. NOIR’s **Manage subscription** button creates a short-lived portal session for the signed-in account.
+
+Live billing is deliberately gated. NOIR refuses live Stripe keys unless the server owner intentionally sets both `STRIPE_MODE=live` and `ALLOW_LIVE_STRIPE=true`. Leave these off during development. Stripe secret keys and webhook secrets belong only in server or host environment variables, never in browser code or Git.
 - For trusted accounts that should bypass the in-app credit limit, set `UNLIMITED_ACCESS_EMAILS` to a comma-separated list of verified account email addresses on the server. Keep this setting private; never add real addresses to source control or frontend code. It removes only the NOIR credit limit and does not bypass sign-in or provider rate limits.
 - Change `ENABLE_CREDITS`, `STARTING_CREDITS`, and `CREDITS_PER_MESSAGE` in `.env` to adjust this. Credit values and token totals are stored and updated by the server; the browser cannot submit a replacement balance.
 

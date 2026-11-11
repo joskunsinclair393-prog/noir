@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#080808">
+<meta name="description" content="NOIR is a calm, private space to think, write, learn, and create with AI.">
 <title>NOIR — AI Chat</title>
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="styles.css">
@@ -37,6 +38,7 @@
   <aside class="sidebar">
     <button type="button" class="brand home-button" id="homeButton" aria-label="Go to the NOIR home page"><img class="logo" src="logo.svg" alt=""><span>NOIR</span></button>
     <button class="newchat" id="newChat">＋ &nbsp; New chat</button>
+    <label class="history-search-wrap" for="historySearch"><span aria-hidden="true">⌕</span><input id="historySearch" type="search" placeholder="Search chats" autocomplete="off" aria-label="Search saved chats"></label>
     <div class="side-label">Your chats</div>
     <div class="chat-history" id="chatHistory" aria-label="Saved chats"></div>
     <div class="side-note history-empty" id="historyEmpty">Your saved chats will appear here.</div>
@@ -46,7 +48,6 @@
     <header class="topbar">
       <div class="topbar-leading"><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Hide sidebar" title="Hide sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button><button type="button" class="model home-button" id="homeButtonTop" aria-label="Go to the NOIR home page"><img class="logo" src="logo.svg" alt="">NOIR <span>· Assistant</span></button></div>
       <div class="topbar-actions">
-        <div class="credits-pill" id="creditsPanel" hidden><b id="creditBalance">0</b><span>credits</span></div>
         <div class="profile-wrap" id="profileWrap" hidden>
           <button type="button" class="profile-trigger" id="profileTrigger" aria-label="Open profile" aria-haspopup="menu" aria-expanded="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
@@ -54,11 +55,15 @@
           <section class="profile-menu" id="profileMenu" role="menu" aria-label="Profile" hidden>
             <div class="profile-menu-heading">Profile</div>
             <div class="profile-email" id="profileEmail">Signed in</div>
+            <div class="profile-plan"><span id="profilePlanStatus">NOIR Free</span><button type="button" id="profilePlanAction">Explore Plus</button></div>
             <div class="profile-usage"><span>Tokens today (UTC)</span><b id="profileDailyTokens">0</b></div>
-            <div class="profile-usage"><span>Lifetime tokens</span><b id="profileLifetimeTokens">0</b></div>
-            <button type="button" class="profile-signout" id="profileSignOut" role="menuitem" hidden>Sign out</button>
+            <div class="profile-usage"><span>Lifetime tokens</span><b id="profileLifetimeTokens">0</b><small><span id="inputTokenTotal">0</span> input · <span id="outputTokenTotal">0</span> output</small></div>
+            <div class="profile-daily" id="profileDailyUsage" hidden></div>
+            <button class="profile-manage" type="button" id="manageSubscription" hidden>Manage subscription</button>
+            <button class="profile-signout" type="button" id="profileSignOut" role="menuitem">Sign out</button>
           </section>
         </div>
+        <div class="credits-pill" id="creditsPanel" hidden><b id="creditBalance">0</b><span>credits</span></div>
         <button class="settings-trigger" id="settingsTrigger" aria-label="Settings" title="Settings">⚙</button>
       </div>
     </header>
@@ -68,7 +73,7 @@
         <img class="welcome-logo" src="logo.svg" alt="">
         <div class="eyebrow">A space for anything</div>
         <h1>What’s on your mind?</h1>
-        <p>Ask a question, explore an idea, or start creating something.</p>
+        <p>Ask a question, explore an idea, or make something remarkable.</p>
         <div class="suggestions">
           <button class="suggestion" data-prompt="Help me come up with a creative project idea."><b>✳ &nbsp; Brainstorm</b>Find a fresh idea to explore</button>
           <button class="suggestion" data-prompt="Explain a difficult topic in simple terms."><b>◈ &nbsp; Learn something</b>Make a tricky topic easier</button>
@@ -101,7 +106,7 @@
           <button class="send" id="send" aria-label="Send message">↑</button>
         </div>
       </div>
-      <div class="disclaimer">Your chats are private to your account.</div>
+      <div class="disclaimer">AI can make mistakes. Check important information.</div>
     </div>
   </main>
 </div>
@@ -129,6 +134,7 @@
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="Settings sections">
         <button type="button" class="settings-tab is-active" data-settings-tab="general"><span>⚙</span>General</button>
+        <button type="button" class="settings-tab" data-settings-tab="plan"><span>✦</span>Plan</button>
         <button type="button" class="settings-tab" data-settings-tab="connectors"><span>↗</span>Connectors</button>
         <button type="button" class="settings-tab" data-settings-tab="plugins"><span>✳</span>Plugins</button>
       </nav>
@@ -141,6 +147,12 @@
             <div class="setting-switch-row"><span class="setting-option-copy"><b>Prompt suggestions</b><small>Show starter ideas on the welcome screen</small></span><button type="button" class="setting-switch is-on" id="suggestionsToggle" role="switch" aria-checked="true" aria-label="Show prompt suggestions"><span></span></button></div>
             <div class="setting-switch-row"><span class="setting-option-copy"><b>Compact messages</b><small>Reduce the space between chat messages</small></span><button type="button" class="setting-switch" id="compactToggle" role="switch" aria-checked="false" aria-label="Compact messages"><span></span></button></div>
           </div>
+        </section>
+        <section class="settings-panel" data-settings-panel="plan" hidden>
+          <div class="settings-panel-title"><div><h3>Your plan</h3><p id="planStatusDescription">You’re using NOIR Free.</p></div></div>
+          <div class="plan-status-card"><span class="plan-status-icon">✦</span><div><b id="settingsPlanName">NOIR Free</b><small id="settingsPlanDetail">Free daily usage applies.</small></div></div>
+          <div class="plan-settings-actions"><button type="button" class="plus-button" id="settingsUpgradeButton">Get NOIR Plus · $15 AUD/month</button><button type="button" class="manage-button" id="settingsManageButton" hidden>Manage subscription</button></div>
+          <p class="plan-fair-use">Plus removes NOIR’s daily quota and per-account message cap. AI provider quotas, safety systems, and service-wide fair-use safeguards still apply.</p>
         </section>
         <section class="settings-panel" data-settings-panel="connectors" hidden>
           <div class="settings-panel-title"><div><h3>Connectors</h3><p>Link services to bring your files into NOIR.</p></div><span class="preview-tag">PREVIEW</span></div>
@@ -171,6 +183,37 @@
         <div class="settings-footnote">Connector and plugin choices are previews until service integrations are connected.</div>
       </div>
     </div>
+  </section>
+</div>
+<div class="plus-backdrop" id="plusBackdrop" hidden>
+  <section class="plus-dialog" role="dialog" aria-modal="true" aria-labelledby="plusTitle">
+    <button type="button" class="plus-close" id="plusClose" aria-label="Close NOIR Plus">×</button>
+    <div class="plus-emblem" aria-hidden="true">✦</div>
+    <div class="plus-eyebrow">A little more room to think</div>
+    <h2 id="plusTitle">Meet NOIR Plus</h2>
+    <p class="plus-intro">More room for longer days and deeper conversations.</p>
+    <div class="plus-price"><strong>$15</strong><span>AUD <b>/ month</b><small>Monthly recurring subscription</small></span></div>
+    <div class="plan-comparison" role="table" aria-label="Compare NOIR plans">
+      <div class="comparison-head" role="row"><span role="columnheader">Included</span><span role="columnheader">Free</span><span role="columnheader">Plus</span></div>
+      <div role="row"><span role="cell">Daily NOIR usage quota</span><span role="cell">Applies</span><b role="cell">Removed</b></div>
+      <div role="row"><span role="cell">Per-account message cap</span><span role="cell">Standard</span><b role="cell">Removed</b></div>
+      <div role="row"><span role="cell">Eligible model access</span><span role="cell">Available models</span><b role="cell">Priority when supported</b></div>
+    </div>
+    <p class="plus-fair-use">Plus removes NOIR’s own daily quota and per-account message cap. Provider usage limits, model availability, safety systems, and service-wide fair-use safeguards still apply.</p>
+    <button type="button" class="plus-button plus-checkout" id="plusCheckout">Get NOIR Plus · $15 AUD/month</button>
+    <button type="button" class="manage-button plus-manage" id="plusManage" hidden>Manage subscription</button>
+    <p class="plus-feedback" id="plusFeedback" role="status" aria-live="polite"></p>
+    <button type="button" class="plus-dismiss" id="plusDismiss">Maybe later</button>
+  </section>
+</div>
+<div class="limit-backdrop" id="limitBackdrop" hidden>
+  <section class="limit-dialog" role="alertdialog" aria-modal="true" aria-labelledby="limitTitle" aria-describedby="limitDescription">
+    <div class="limit-icon" aria-hidden="true">◷</div>
+    <div class="plus-eyebrow">A pause, not a goodbye</div>
+    <h2 id="limitTitle">You’ve used today’s free NOIR usage</h2>
+    <p id="limitDescription">Your free daily usage resets at <b id="limitResetTime">midnight UTC</b>.</p>
+    <div class="limit-actions"><button type="button" class="limit-wait" id="limitWait">Wait for reset</button><button type="button" class="plus-button" id="limitUpgrade">Get NOIR Plus · $15 AUD/month</button></div>
+    <p class="plus-fair-use">Plus removes NOIR’s daily quota and per-account message cap. Provider limits, safety systems, and fair-use safeguards still apply.</p>
   </section>
 </div>
 <script src="script.js" defer></script>

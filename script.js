@@ -20,6 +20,7 @@
   let chats = [];
   let sessionInfo = null;
   let sending = false;
+  let editingLastMessage = false;
 
   function readAuthSession() {
     try { return JSON.parse(localStorage.getItem(authStorageKey) || 'null'); } catch { return null; }
@@ -165,7 +166,7 @@
     if (response.status === 401 && path !== '/api/auth-config' && await refreshAuthSession()) response = await request();
     let data = {};
     try { data = await response.json(); } catch {}
-    if (!response.ok) throw Object.assign(new Error(data.error || `Request failed (${response.status})`), { status: response.status, code: data.code });
+    if (!response.ok) throw Object.assign(new Error(data.error || `Request failed (${response.status})`), { status: response.status, code: data.code, details: data.details });
     return data;
   }
 
@@ -180,13 +181,114 @@
     const usage = data.usage || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     $('profileLifetimeTokens').textContent = numberFormat.format(usage.totalTokens || 0);
     $('profileDailyTokens').textContent = numberFormat.format(data.dailyTokens || 0);
+    $('inputTokenTotal').textContent = numberFormat.format(usage.inputTokens || 0);
+    $('outputTokenTotal').textContent = numberFormat.format(usage.outputTokens || 0);
+    $('profileTrigger').setAttribute('aria-label', `Profile and token usage: ${numberFormat.format(usage.totalTokens || 0)} tokens`);
     $('creditsPanel').hidden = !data.creditsEnabled;
     if (data.creditsEnabled) $('creditBalance').textContent = data.creditsUnlimited ? 'Unlimited' : numberFormat.format(data.credits || 0);
 
+    const subscription = data.subscription || { isPlus: false, status: 'free', manageAvailable: false };
+    const isPlus = Boolean(subscription.isPlus);
+    $('profilePlanStatus').textContent = isPlus ? 'NOIR Plus' : 'NOIR Free';
+    $('profilePlanAction').textContent = isPlus ? 'View Plus benefits' : 'Explore Plus';
+    $('settingsPlanName').textContent = isPlus ? 'NOIR Plus' : 'NOIR Free';
+    $('planStatusDescription').textContent = isPlus ? 'Your Plus benefits are active.' : 'You’re using NOIR Free.';
+    $('settingsPlanDetail').textContent = isPlus
+      ? subscription.cancelAtPeriodEnd ? `Active until ${formatBillingDate(subscription.currentPeriodEnd)}.` : `Renews ${formatBillingDate(subscription.renewalDate)}.`
+      : data.dailyTokenLimit ? `${numberFormat.format(data.dailyTokens || 0)} of ${numberFormat.format(data.dailyTokenLimit)} daily tokens used.` : 'Free daily quota is currently not configured.';
+    const manageAvailable = Boolean(subscription.manageAvailable);
+    $('manageSubscription').hidden = !manageAvailable;
+    $('settingsManageButton').hidden = !manageAvailable;
+    $('plusManage').hidden = !manageAvailable;
+    $('settingsUpgradeButton').hidden = isPlus;
+    $('plusCheckout').hidden = isPlus;
+    $('profileDailyUsage').hidden = isPlus || !data.dailyTokenLimit;
+    $('profileDailyUsage').textContent = !isPlus && data.dailyTokenLimit ? `Today: ${numberFormat.format(data.dailyTokens || 0)} / ${numberFormat.format(data.dailyTokenLimit)} tokens` : '';
+
     if (data.provider.ready) showNotice('', false);
-    else if (!data.provider.keyConfigured) showNotice('NOIR’s AI service is not configured yet. Please try again later.');
-    else if (!data.provider.requestsEnabled) showNotice('AI requests are temporarily unavailable. Please try again later.');
-    else showNotice('NOIR could not connect to its AI service. Please try again later.');
+    else if (!data.provider.keyConfigured) showNotice('AI replies are not configured yet. The site owner needs to finish the server setup.');
+    else if (!data.provider.requestsEnabled) showNotice('AI replies are paused until the site owner enables the service.');
+    else showNotice('The AI service needs attention. Please try again later or contact the site owner.');
+  }
+
+  function formatBillingDate(value) {
+    if (!value) return 'your next billing date';
+    const date = new Date(value);
+    return Number.isNaN(date.valueOf()) ? 'your next billing date' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
+  }
+
+  function openPlus() {
+    $('profileMenu').hidden = true;
+    $('profileTrigger').setAttribute('aria-expanded', 'false');
+    $('limitBackdrop').hidden = true;
+    document.body.classList.remove('limit-open');
+    $('plusFeedback').textContent = '';
+    $('plusBackdrop').hidden = false;
+    document.body.classList.add('plus-open');
+    $('plusClose').focus({ preventScroll: true });
+  }
+
+  function closePlus() {
+    $('plusBackdrop').hidden = true;
+    document.body.classList.remove('plus-open');
+  }
+
+  function showDailyLimit(details = {}) {
+    const resetAt = details.resetAt ? new Date(details.resetAt) : null;
+    $('limitResetTime').textContent = resetAt && !Number.isNaN(resetAt.valueOf())
+      ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZoneName: 'short' }).format(resetAt)
+      : 'midnight UTC';
+    $('limitBackdrop').hidden = false;
+    document.body.classList.add('limit-open');
+    $('limitWait').focus({ preventScroll: true });
+  }
+
+  async function startCheckout() {
+    const button = $('plusCheckout');
+    button.disabled = true; button.textContent = 'Opening secure checkout…'; $('plusFeedback').textContent = '';
+    try {
+      const result = await api('/api/plus/checkout', { method: 'POST' });
+      if (!result.url?.startsWith('https://checkout.stripe.com/')) throw new Error('NOIR could not open secure checkout.');
+      location.assign(result.url);
+    } catch (error) {
+      $('plusFeedback').textContent = error.message;
+      button.textContent = 'Get NOIR Plus · $15 AUD/month'; button.disabled = false;
+    }
+  }
+
+  async function openBillingPortal() {
+    const buttons = [$('manageSubscription'), $('settingsManageButton'), $('plusManage')];
+    buttons.forEach(button => { button.disabled = true; });
+    $('plusFeedback').textContent = '';
+    try {
+      const result = await api('/api/plus/manage', { method: 'POST' });
+      if (!result.url?.startsWith('https://billing.stripe.com/')) throw new Error('NOIR could not open subscription management.');
+      location.assign(result.url);
+    } catch (error) {
+      $('plusFeedback').textContent = error.message;
+      showNotice(error.message);
+    } finally { buttons.forEach(button => { button.disabled = false; }); }
+  }
+
+  async function confirmPlusFromWebhook() {
+    const params = new URLSearchParams(location.search);
+    const result = params.get('plus');
+    if (!result) return;
+    history.replaceState({}, '', location.pathname);
+    if (result === 'canceled') { showNotice('Checkout was canceled. You can return to NOIR Free at any time.', true); return; }
+    showNotice('Payment complete. Confirming your subscription securely…', true);
+    for (let attempt = 0; attempt < 8; attempt++) {
+      try {
+        const data = await api('/api/subscription');
+        if (data.subscription?.isPlus) {
+          updateSession({ ...sessionInfo, subscription: data.subscription });
+          showNotice('NOIR Plus is active. Welcome aboard.', true);
+          return;
+        }
+      } catch (error) { showNotice(error.message, true); return; }
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    showNotice('Payment completed. Stripe is still confirming the subscription; Plus will turn on automatically when the verified webhook arrives.', true);
   }
 
   function rememberActiveChat(id) {
@@ -199,7 +301,9 @@
   function renderChatHistory() {
     const list = $('chatHistory');
     list.replaceChildren();
-    [...chats].sort((a, b) => b.updatedAt - a.updatedAt).forEach(chat => {
+    const query = ($('historySearch')?.value || '').trim().toLocaleLowerCase();
+    const visibleChats = [...chats].filter(chat => chat.title.toLocaleLowerCase().includes(query)).sort((a, b) => b.updatedAt - a.updatedAt);
+    visibleChats.forEach(chat => {
       const row = document.createElement('div');
       row.className = 'chat-history-row' + (chat.id === activeChatId ? ' is-active' : '');
       const button = document.createElement('button');
@@ -248,7 +352,8 @@
       row.append(button, optionsWrap);
       list.append(row);
     });
-    $('historyEmpty').hidden = chats.length > 0;
+    $('historyEmpty').hidden = visibleChats.length > 0;
+    $('historyEmpty').textContent = chats.length && query ? 'No matching chats.' : 'Your saved chats will appear here.';
   }
 
   async function deleteChat(chat) {
@@ -326,14 +431,78 @@
     resize();
   }
 
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+  }
+
+  function highlightCode(code, language = '') {
+    const escaped = escapeHtml(code);
+    const known = /^(js|javascript|ts|typescript|json|html|css|python|py|bash|sh|sql|java|go|rust|c|cpp|yaml|yml|)$/i.test(language);
+    if (!known) return escaped;
+    return escaped
+      .replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g, '<span class="syntax-string">$1</span>')
+      .replace(/(^|\s)(\/\/.*|#.*)$/gm, '$1<span class="syntax-comment">$2</span>')
+      .replace(/\b(const|let|var|function|return|if|else|for|while|class|new|async|await|import|from|export|default|def|print|true|false|null|None|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|CREATE|TABLE)\b/g, '<span class="syntax-keyword">$1</span>')
+      .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="syntax-number">$1</span>');
+  }
+
+  function renderMarkdown(text) {
+    const blocks = [];
+    let source = String(text).replace(/\r\n?/g, '\n').replace(/```([\w+-]*)\n?([\s\S]*?)```/g, (_match, language, code) => {
+      const index = blocks.push(`<pre class="code-block"><div class="code-toolbar"><span>${escapeHtml(language || 'Code')}</span><button type="button" class="copy-code" aria-label="Copy code">Copy</button></div><code>${highlightCode(code.replace(/\n$/, ''), language)}</code></pre>`) - 1;
+      return `\u0000${index}\u0000`;
+    });
+    source = escapeHtml(source)
+      .replace(/^###\s+(.+)$/gm, '<h4>$1</h4>').replace(/^##\s+(.+)$/gm, '<h3>$1</h3>').replace(/^#\s+(.+)$/gm, '<h2>$1</h2>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+      .replace(/^&gt;\s?(.+)$/gm, '<blockquote>$1</blockquote>')
+      .replace(/(?:^|\n)([-*])\s+(.+)(?=\n|$)/g, '\n<li>$2</li>')
+      .replace(/((?:<li>[\s\S]*?<\/li>\n?)+)/g, '<ul>$1</ul>')
+      .replace(/\n/g, '<br>')
+      .replace(/\u0000(\d+)\u0000/g, (_match, index) => `</p>${blocks[Number(index)]}<p>`);
+    return `<p>${source}</p>`.replace(/<p><\/p>/g, '').replace(/<p>(<h[234]>)/g, '$1').replace(/(<\/h[234]>)<br>/g, '$1').replace(/<p>(<ul>|<blockquote>|<pre)/g, '$1').replace(/(<\/ul>|<\/blockquote>|<\/pre>)<\/p>/g, '$1');
+  }
+
   function addMessage(role, text, usage = null, state = '', shouldScroll = true) {
     const row = document.createElement('div');
     row.className = 'message ' + role + (state ? ' ' + state : '');
+    if (role === 'assistant') {
+      const mark = document.createElement('img'); mark.className = 'assistant-mark'; mark.src = 'logo.svg'; mark.alt = '';
+      row.append(mark);
+    }
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    bubble.textContent = text;
+    if (role === 'assistant' && !state) bubble.innerHTML = renderMarkdown(text);
+    else bubble.textContent = text;
     row.append(bubble);
     messages.append(row);
+    if (role === 'assistant' && !state && !row.classList.contains('typing')) {
+      const actions = document.createElement('div');
+      actions.className = 'message-actions';
+      const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy'; copy.setAttribute('aria-label', 'Copy response');
+      copy.addEventListener('click', async () => { await navigator.clipboard?.writeText(text); copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy'; }, 1200); });
+      const regenerate = document.createElement('button'); regenerate.type = 'button'; regenerate.textContent = 'Regenerate'; regenerate.setAttribute('aria-label', 'Regenerate response');
+      regenerate.addEventListener('click', () => {
+        const lastUser = [...messages.querySelectorAll('.message.user .bubble')].at(-1)?.textContent;
+        if (lastUser && row === [...messages.querySelectorAll('.message.assistant:not(.typing):not(.error)')].at(-1)) send(lastUser, { regenerate: true });
+      });
+      actions.append(copy, regenerate);
+      row.append(actions);
+      row.querySelectorAll('.copy-code').forEach(button => button.addEventListener('click', async () => {
+        const code = button.closest('.code-block')?.querySelector('code')?.textContent || '';
+        await navigator.clipboard?.writeText(code); button.textContent = 'Copied'; setTimeout(() => { button.textContent = 'Copy'; }, 1200);
+      }));
+    }
+    if (role === 'user' && !state) {
+      const actions = document.createElement('div'); actions.className = 'message-actions user-message-actions';
+      const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = 'Edit'; edit.setAttribute('aria-label', 'Edit message');
+      edit.addEventListener('click', () => {
+        if (row !== [...messages.querySelectorAll('.message.user')].at(-1)) return;
+        input.value = bubble.textContent; editingLastMessage = true; resize(); input.focus({ preventScroll: true });
+      });
+      actions.append(edit); row.append(actions);
+    }
     if (shouldScroll) scrollMessagesToBottom();
     return row;
   }
@@ -355,6 +524,7 @@
     row.className = 'message assistant typing';
     row.setAttribute('role', 'status');
     row.setAttribute('aria-label', 'NOIR is thinking');
+    const mark = document.createElement('img'); mark.className = 'assistant-mark'; mark.src = 'logo.svg'; mark.alt = '';
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     for (let index = 0; index < 3; index++) {
@@ -362,7 +532,7 @@
       dot.className = 'typing-dot';
       bubble.append(dot);
     }
-    row.append(bubble);
+    row.append(mark, bubble);
     messages.append(row);
     scrollMessagesToBottom();
     return row;
@@ -372,6 +542,7 @@
     if (sending) return;
     try {
       const { chat } = await api(`/api/chats/${encodeURIComponent(id)}`);
+      editingLastMessage = false;
       activeChatId = chat.id;
       rememberActiveChat(activeChatId);
       messages.replaceChildren();
@@ -387,6 +558,7 @@
   }
 
   function startNewChat(focus = true) {
+    editingLastMessage = false;
     activeChatId = null;
     rememberActiveChat(null);
     messages.replaceChildren();
@@ -438,21 +610,40 @@
   settingsBackdrop.addEventListener('click', event => { if (event.target === settingsBackdrop) closeSettings(); });
   document.querySelectorAll('[data-open-settings]').forEach(button => button.addEventListener('click', () => openSettings(button.dataset.openSettings)));
   document.querySelectorAll('[data-settings-tab]').forEach(tab => tab.addEventListener('click', () => openSettings(tab.dataset.settingsTab)));
+  $('profilePlanAction').addEventListener('click', openPlus);
+  $('settingsUpgradeButton').addEventListener('click', openPlus);
+  $('plusClose').addEventListener('click', closePlus);
+  $('plusDismiss').addEventListener('click', closePlus);
+  $('plusBackdrop').addEventListener('click', event => { if (event.target === $('plusBackdrop')) closePlus(); });
+  $('plusCheckout').addEventListener('click', startCheckout);
+  $('limitUpgrade').addEventListener('click', openPlus);
+  $('limitWait').addEventListener('click', () => { $('limitBackdrop').hidden = true; document.body.classList.remove('limit-open'); input.focus({ preventScroll: true }); });
+  $('settingsManageButton').addEventListener('click', openBillingPortal);
+  $('manageSubscription').addEventListener('click', openBillingPortal);
+  $('plusManage').addEventListener('click', openBillingPortal);
   function bindSwitch(button, initial, apply) {
     let enabled = initial;
-    button.addEventListener('click', () => {
-      enabled = !enabled;
+    const sync = () => {
       button.classList.toggle('is-on', enabled);
       button.setAttribute('aria-checked', String(enabled));
+    };
+    button.addEventListener('click', () => {
+      enabled = !enabled;
+      sync();
       apply(enabled);
     });
+    sync();
     apply(enabled);
   }
-  bindSwitch($('lightAppearanceToggle'), false, enabled => document.body.classList.toggle('light-theme', enabled));
+  const preferenceKey = 'noirPreferences';
+  let savedPreferences = {};
+  try { savedPreferences = JSON.parse(localStorage.getItem(preferenceKey) || '{}'); } catch {}
+  function savePreference(name, enabled) { savedPreferences[name] = enabled; try { localStorage.setItem(preferenceKey, JSON.stringify(savedPreferences)); } catch {} }
+  bindSwitch($('lightAppearanceToggle'), Boolean(savedPreferences.light), enabled => { document.body.classList.toggle('light-theme', enabled); savePreference('light', enabled); });
   let enterToSend = true;
-  bindSwitch($('enterSendToggle'), true, enabled => { enterToSend = enabled; });
-  bindSwitch($('suggestionsToggle'), true, enabled => { document.querySelector('.suggestions').hidden = !enabled; });
-  bindSwitch($('compactToggle'), false, enabled => document.body.classList.toggle('compact-chat', enabled));
+  bindSwitch($('enterSendToggle'), savedPreferences.enterSend !== false, enabled => { enterToSend = enabled; savePreference('enterSend', enabled); });
+  bindSwitch($('suggestionsToggle'), savedPreferences.suggestions !== false, enabled => { document.querySelector('.suggestions').hidden = !enabled; savePreference('suggestions', enabled); });
+  bindSwitch($('compactToggle'), Boolean(savedPreferences.compact), enabled => { document.body.classList.toggle('compact-chat', enabled); savePreference('compact', enabled); });
 
   let sidebarOpen = !window.matchMedia('(max-width: 700px)').matches;
   function setSidebar(open) { sidebarOpen = open; applySidebarState(); }
@@ -465,6 +656,12 @@
     $('sidebarToggle').title = label;
   }
   $('sidebarToggle').addEventListener('click', () => setSidebar(!sidebarOpen));
+  $('historySearch').addEventListener('input', renderChatHistory);
+  const profileMenu = $('profileMenu');
+  $('profileTrigger').addEventListener('click', event => {
+    event.stopPropagation(); profileMenu.hidden = !profileMenu.hidden;
+    $('profileTrigger').setAttribute('aria-expanded', String(!profileMenu.hidden));
+  });
   window.addEventListener('resize', applySidebarState);
   applySidebarState();
   app.addEventListener('click', event => {
@@ -472,6 +669,7 @@
   });
   document.addEventListener('click', event => { if (!event.target.closest('.attach-wrap')) closeAttachMenu(); });
   document.addEventListener('click', event => {
+    if (!event.target.closest('.profile-wrap')) { profileMenu.hidden = true; $('profileTrigger').setAttribute('aria-expanded', 'false'); }
     if (event.target.closest('.chat-options-wrap')) return;
     document.querySelectorAll('.chat-options-menu').forEach(menu => { menu.hidden = true; });
     document.querySelectorAll('.chat-more-button').forEach(button => button.setAttribute('aria-expanded', 'false'));
@@ -480,8 +678,9 @@
     if (event.key === 'Escape') {
       if (!settingsBackdrop.hidden) closeSettings();
       else closeAttachMenu();
-      $('profileMenu').hidden = true;
-      $('profileTrigger').setAttribute('aria-expanded', 'false');
+      if (!$('plusBackdrop').hidden) closePlus();
+      $('limitBackdrop').hidden = true; document.body.classList.remove('limit-open');
+      profileMenu.hidden = true; $('profileTrigger').setAttribute('aria-expanded', 'false');
       document.querySelectorAll('.chat-options-menu').forEach(menu => { menu.hidden = true; });
       document.querySelectorAll('.chat-more-button').forEach(button => button.setAttribute('aria-expanded', 'false'));
     }
@@ -496,8 +695,9 @@
     renderChatHistory();
   }
 
-  async function send(text = input.value) {
+  async function send(text = input.value, options = {}) {
     if (sending) return;
+    options = { ...options, edit: options.edit ?? (!options.regenerate && editingLastMessage) };
     const value = String(text || '').trim();
     if (!value) {
       if (pickedFiles.length || selectedIntegrations.size) addMessage('assistant', 'File uploads, connectors, and plugins are preview controls in this build. Type a message to send it to the AI provider.', null, 'error');
@@ -507,51 +707,48 @@
     sending = true;
     $('send').disabled = true;
     input.disabled = true;
-    const userRow = addMessage('user', value);
+    let failed = false;
+    const userRow = options.regenerate || options.edit ? null : addMessage('user', value);
     const typingRow = addTyping();
     $('welcome').hidden = true;
     try {
       const result = await api('/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ chatId: activeChatId, message: value, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+        body: JSON.stringify({ chatId: activeChatId, message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
       });
       activeChatId = result.chat.id;
       rememberActiveChat(activeChatId);
-      addUsageMeta(userRow, result.usage);
       typingRow.remove();
+      if (options.regenerate || options.edit) {
+        messages.querySelector('.message.assistant:not(.typing):not(.error):last-of-type')?.remove();
+        if (options.edit) [...messages.querySelectorAll('.message.user')].at(-1)?.remove();
+      }
       addMessage('assistant', result.chat.messages.at(-1).text);
       updateChatSummary(result.chat);
       updateSession(result.session);
       if (extraSelections) showNotice('Only your typed message was sent. File uploads, connectors, and plugins are still preview controls.');
       else if (sessionInfo?.provider.ready) showNotice('', false);
       clearDraft();
+      editingLastMessage = false;
     } catch (error) {
-      userRow.remove();
+      failed = true;
+      userRow?.remove();
       typingRow.remove();
-      addMessage('assistant', error.message, null, 'error');
+      if (error.code === 'daily_token_limit') showDailyLimit(error.details);
+      else addMessage('assistant', error.message, null, 'error');
       if (error.code === 'provider_opt_in_required' || error.code === 'missing_api_key') showNotice(error.message);
       if (error.code === 'insufficient_credits') showNotice(error.message);
     } finally {
       sending = false;
       $('send').disabled = false;
       input.disabled = false;
-      input.value = '';
+      if (failed && options.edit) input.value = value;
+      else input.value = '';
       resize();
-      input.focus({ preventScroll: true });
+      if (!options.regenerate && $('limitBackdrop').hidden) input.focus({ preventScroll: true });
     }
   }
 
-  $('profileTrigger').addEventListener('click', event => {
-    event.stopPropagation();
-    const open = $('profileMenu').hidden;
-    $('profileMenu').hidden = !open;
-    $('profileTrigger').setAttribute('aria-expanded', String(open));
-  });
-  document.addEventListener('click', event => {
-    if (event.target.closest('.profile-wrap')) return;
-    $('profileMenu').hidden = true;
-    $('profileTrigger').setAttribute('aria-expanded', 'false');
-  });
   $('send').addEventListener('click', () => send());
   input.addEventListener('input', resize);
   input.addEventListener('keydown', event => {
@@ -573,12 +770,14 @@
     else startNewChat(false);
     if (authConfig?.required) {
       $('profileEmail').textContent = data.user?.email || 'Signed in';
+      $('profileWrap').hidden = false;
       $('profileSignOut').hidden = false;
     } else {
       $('profileEmail').textContent = 'Local session';
+      $('profileWrap').hidden = false;
       $('profileSignOut').hidden = true;
     }
-    $('profileWrap').hidden = false;
+    await confirmPlusFromWebhook();
   }
 
   async function initialize() {

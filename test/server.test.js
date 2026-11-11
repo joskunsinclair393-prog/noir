@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createNoirServer, generateWithGemini, generateWithGroq, generateWithOpenAI } from '../server.js';
+import { createNoirServer, generateWithGemini, generateWithGroq, generateWithOpenAI, verifyStripeSignature } from '../server.js';
 
 const runningServers = [];
 const temporaryFolders = [];
@@ -244,4 +244,113 @@ test('Supabase storage keeps an account chat after the server restarts', async (
   const history = await (await fetch(`${restartedBase}/api/chats/${restored.chats[0].id}`, { headers })).json();
   assert.equal(history.chat.messages.at(-1).text, 'Saved response.');
   assert.equal(history.chat.messages[0].text, 'Save this chat');
+});
+
+test('NOIR Plus keeps the free daily quota, grants access only after a signed Stripe event, and handles billing lifecycle changes', async () => {
+  const userId = '7e3c12a5-1782-4c8c-9f12-6d3a8590c084';
+  const webhookSecret = 'whsec_test_local_secret';
+  let accountRow = null;
+  let subscriptionRow = null;
+  const processedEvents = new Set();
+  let subscription = null;
+  const fetchImpl = async (url, options = {}) => {
+    const parsed = new URL(url);
+    if (parsed.pathname === '/auth/v1/user') return new Response(JSON.stringify({ id: userId, email: 'plus-user@example.test', email_confirmed_at: new Date().toISOString() }), { status: 200 });
+    if (parsed.pathname === '/rest/v1/noir_user_data') {
+      if (options.method === 'POST') { accountRow = JSON.parse(options.body); return new Response(null, { status: 201 }); }
+      return new Response(JSON.stringify(accountRow ? [accountRow] : []), { status: 200 });
+    }
+    if (parsed.pathname === '/rest/v1/noir_subscriptions') {
+      if (options.method === 'POST') { subscriptionRow = JSON.parse(options.body); return new Response(null, { status: 201 }); }
+      if (parsed.searchParams.has('stripe_subscription_id')) return new Response(JSON.stringify(subscriptionRow ? [subscriptionRow] : []), { status: 200 });
+      return new Response(JSON.stringify(subscriptionRow && subscriptionRow.user_id === userId ? [subscriptionRow] : []), { status: 200 });
+    }
+    if (parsed.pathname === '/rest/v1/noir_stripe_events') {
+      if (options.method === 'POST') { processedEvents.add(JSON.parse(options.body).event_id); return new Response(null, { status: 201 }); }
+      return new Response(JSON.stringify(processedEvents.has(parsed.searchParams.get('event_id')?.replace('eq.', '')) ? [{ event_id: 'present' }] : []), { status: 200 });
+    }
+    if (parsed.pathname === '/v1/prices/price_noir_test') return new Response(JSON.stringify({ id: 'price_noir_test', active: true, currency: 'aud', unit_amount: 1500, recurring: { interval: 'month', interval_count: 1 } }), { status: 200 });
+    if (parsed.pathname === '/v1/checkout/sessions') return new Response(JSON.stringify({ id: 'cs_test_noir', url: 'https://checkout.stripe.com/c/pay/cs_test_noir' }), { status: 200 });
+    if (parsed.pathname === '/v1/billing_portal/sessions') return new Response(JSON.stringify({ url: 'https://billing.stripe.com/p/session/test' }), { status: 200 });
+    if (parsed.pathname === '/v1/subscriptions/sub_noir_test') return new Response(JSON.stringify(subscription), { status: 200 });
+    throw new Error(`Unexpected request to ${url}`);
+  };
+  const server = createNoirServer({
+    dataFile: temporaryStore(),
+    fetchImpl,
+    config: {
+      authRequired: true, supabaseUrl: 'https://auth.example.test', supabaseAnonKey: 'public-anon-key', supabaseServiceRoleKey: 'private-service-role',
+      stripeSecretKey: 'sk_test_noir', stripeWebhookSecret: webhookSecret, stripePriceId: 'price_noir_test', stripeMode: 'test', publicAppUrl: 'http://127.0.0.1:3000',
+      provider: 'gemini', model: 'mock-model', dailyTokenLimit: 300, creditsEnabled: false, maxRequestsPerMinute: 100, maxPublicRequestsPerMinute: 100,
+    },
+    generate: async () => ({ text: 'A verified AI response.', usage: { inputTokens: 200, outputTokens: 100, totalTokens: 300 } }),
+  });
+  const base = await listen(server);
+  const headers = { authorization: 'Bearer verified-user-token', origin: base, 'content-type': 'application/json' };
+  const bootstrap = await (await fetch(`${base}/api/bootstrap`, { headers })).json();
+  assert.equal(bootstrap.session.dailyTokenLimit, 300);
+  assert.equal(bootstrap.session.subscription.isPlus, false);
+
+  const chat = (message) => fetch(`${base}/api/chat`, { method: 'POST', headers, body: JSON.stringify({ message }) });
+  assert.equal((await chat('First question')).status, 200);
+  const capped = await chat('Another question');
+  assert.equal(capped.status, 429);
+  assert.equal((await capped.json()).code, 'daily_token_limit');
+
+  const checkout = await fetch(`${base}/api/plus/checkout`, { method: 'POST', headers });
+  assert.equal(checkout.status, 200);
+  assert.match((await checkout.json()).url, /^https:\/\/checkout\.stripe\.com\//);
+  assert.equal((await (await fetch(`${base}/api/subscription`, { headers })).json()).subscription.isPlus, false);
+
+  const future = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+  subscription = {
+    id: 'sub_noir_test', object: 'subscription', customer: 'cus_noir_test', status: 'active', cancel_at_period_end: false,
+    metadata: { supabase_user_id: userId },
+    items: { data: [{ current_period_start: Math.floor(Date.now() / 1000), current_period_end: future }] },
+  };
+  const sendEvent = async (id, type, object, created = Math.floor(Date.now() / 1000)) => {
+    const eventBody = Buffer.from(JSON.stringify({ id, type, created, data: { object } }));
+    const timestamp = Math.floor(Date.now() / 1000);
+    const digest = (await import('node:crypto')).createHmac('sha256', webhookSecret).update(`${timestamp}.`).update(eventBody).digest('hex');
+    return fetch(`${base}/api/stripe/webhook`, { method: 'POST', headers: { 'content-type': 'application/json', 'stripe-signature': `t=${timestamp},v1=${digest}` }, body: eventBody });
+  };
+  const completed = await sendEvent('evt_checkout_success', 'checkout.session.completed', {
+    id: 'cs_test_noir', mode: 'subscription', subscription: 'sub_noir_test', client_reference_id: userId, metadata: { supabase_user_id: userId },
+  });
+  assert.equal(completed.status, 200);
+  assert.equal((await (await fetch(`${base}/api/subscription`, { headers })).json()).subscription.isPlus, true);
+  const afterPayment = await chat('Plus response after reaching the daily free quota');
+  assert.equal(afterPayment.status, 200);
+
+  const portal = await fetch(`${base}/api/plus/manage`, { method: 'POST', headers });
+  assert.equal(portal.status, 200);
+  assert.match((await portal.json()).url, /^https:\/\/billing\.stripe\.com\//);
+
+  subscription.status = 'past_due';
+  const paymentFailed = await sendEvent('evt_invoice_failed', 'invoice.payment_failed', { id: 'in_failed', subscription: 'sub_noir_test' });
+  assert.equal(paymentFailed.status, 200);
+  assert.equal((await (await fetch(`${base}/api/subscription`, { headers })).json()).subscription.isPlus, false);
+
+  subscription.status = 'active';
+  subscription.cancel_at_period_end = true;
+  const cancellationScheduled = await sendEvent('evt_cancel_scheduled', 'customer.subscription.updated', subscription);
+  assert.equal(cancellationScheduled.status, 200);
+  const scheduled = (await (await fetch(`${base}/api/subscription`, { headers })).json()).subscription;
+  assert.equal(scheduled.isPlus, true);
+  assert.equal(scheduled.cancelAtPeriodEnd, true);
+
+  subscription.status = 'canceled';
+  subscription.cancel_at_period_end = true;
+  subscription.items.data[0].current_period_end = Math.floor(Date.now() / 1000) - 1;
+  const canceled = await sendEvent('evt_cancel_complete', 'customer.subscription.deleted', subscription);
+  assert.equal(canceled.status, 200);
+  assert.equal((await (await fetch(`${base}/api/subscription`, { headers })).json()).subscription.isPlus, false);
+
+  const expiredChat = await chat('The canceled subscription expired at period end');
+  assert.equal(expiredChat.status, 429);
+  assert.equal((await expiredChat.json()).code, 'daily_token_limit');
+
+  const invalid = await fetch(`${base}/api/stripe/webhook`, { method: 'POST', headers: { 'stripe-signature': 't=1,v1=bad' }, body: '{}' });
+  assert.equal(invalid.status, 400);
+  assert.equal(verifyStripeSignature(Buffer.from('ok'), 't=1,v1=bad', webhookSecret), false);
 });
