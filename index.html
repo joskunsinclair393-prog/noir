@@ -85,6 +85,7 @@
       </div>
     </header>
     <div class="app-notice" id="appNotice" role="status" hidden></div>
+    <div class="builder-layout" id="builderLayout">
     <section class="chat">
       <div class="welcome" id="welcome">
         <img class="welcome-logo" src="logo.svg" alt="">
@@ -95,7 +96,7 @@
         </div>
         <div class="code-intro">
           <h1>NOIR Code</h1>
-          <p>Ask about your code, troubleshoot an error, or plan your next build. The browser editor is in development.</p>
+          <p>Ask about your code, troubleshoot an error, or plan your next build. Build a website with a live preview.</p>
         </div>
         <div class="suggestions">
           <button class="suggestion" data-prompt="Help me come up with a creative project idea."><b>✳ &nbsp; Brainstorm</b>Find a fresh idea to explore</button>
@@ -110,6 +111,19 @@
       </div>
       <div class="messages" id="messages" aria-live="polite"></div>
     </section>
+    <section class="builder-panel" id="builderPanel" aria-label="Website workspace" hidden>
+      <div class="builder-toolbar">
+        <button type="button" id="builderPreview" aria-pressed="true">Preview</button>
+        <button type="button" id="builderCode" aria-pressed="false">index.html</button>
+        <button type="button" id="builderRefresh">Refresh</button>
+        <button type="button" id="builderFullscreen">Expand</button>
+        <button type="button" id="builderDownload" disabled>Download ZIP</button>
+      </div>
+      <p id="builderStatus" role="status">Describe the website you want to build.</p>
+      <iframe id="builderFrame" title="Website preview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+      <textarea id="builderSource" aria-label="index.html source" spellcheck="false" readonly hidden></textarea>
+    </section>
+    </div>
     <div class="composer-wrap">
       <div class="composer">
         <textarea id="prompt" rows="1" placeholder="Message NOIR..." aria-label="Message NOIR"></textarea>

@@ -566,12 +566,100 @@
     return row;
   }
 
+  let builderProject = null;
+  const builderFrame = $('builderFrame');
+
+  function refreshBuilderPreview() {
+    builderFrame.contentWindow?.postMessage({ type: 'noir-preview', html: builderProject?.html || '' }, '*');
+  }
+
+  function showBuilder(project, status) {
+    builderProject = project || null;
+    $('builderPanel').hidden = !project && !status;
+    $('builderStatus').textContent = status || 'Saved to this conversation';
+    $('builderSource').value = project?.html || '';
+    $('builderDownload').disabled = !project;
+    if (project || status) {
+      if (!builderFrame.hasAttribute('src')) builderFrame.src = '/project-preview';
+      else refreshBuilderPreview();
+    } else {
+      builderFrame.removeAttribute('src');
+    }
+  }
+
+  function showBuilderTab(source) {
+    builderFrame.hidden = source;
+    $('builderSource').hidden = !source;
+    $('builderPreview').setAttribute('aria-pressed', String(!source));
+    $('builderCode').setAttribute('aria-pressed', String(source));
+  }
+
+  builderFrame.addEventListener('load', refreshBuilderPreview);
+  $('builderPreview').addEventListener('click', () => showBuilderTab(false));
+  $('builderCode').addEventListener('click', () => showBuilderTab(true));
+  $('builderRefresh').addEventListener('click', refreshBuilderPreview);
+  $('builderFullscreen').addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await $('builderPanel').requestFullscreen();
+    } catch { $('builderStatus').textContent = 'Fullscreen is unavailable in this browser.'; }
+  });
+  function websiteZip(html) {
+    const encoder = new TextEncoder();
+    const name = encoder.encode('index.html');
+    const bytes = encoder.encode(html);
+    let crc = 0xffffffff;
+    for (const byte of bytes) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+    crc ^= 0xffffffff;
+    const local = new DataView(new ArrayBuffer(30 + name.length));
+    const central = new DataView(new ArrayBuffer(46 + name.length));
+    const end = new DataView(new ArrayBuffer(22));
+    local.setUint32(0, 0x04034b50, true);
+    local.setUint16(4, 20, true);
+    local.setUint16(12, 33, true);
+    local.setUint32(14, crc, true);
+    local.setUint32(18, bytes.length, true);
+    local.setUint32(22, bytes.length, true);
+    local.setUint16(26, name.length, true);
+    new Uint8Array(local.buffer).set(name, 30);
+    central.setUint32(0, 0x02014b50, true);
+    central.setUint16(4, 20, true);
+    central.setUint16(6, 20, true);
+    central.setUint16(14, 33, true);
+    central.setUint32(16, crc, true);
+    central.setUint32(20, bytes.length, true);
+    central.setUint32(24, bytes.length, true);
+    central.setUint16(28, name.length, true);
+    new Uint8Array(central.buffer).set(name, 46);
+    end.setUint32(0, 0x06054b50, true);
+    end.setUint16(8, 1, true);
+    end.setUint16(10, 1, true);
+    end.setUint32(12, central.byteLength, true);
+    end.setUint32(16, local.byteLength + bytes.length, true);
+    return new Blob([local.buffer, bytes, central.buffer, end.buffer], { type: 'application/zip' });
+  }
+
+  $('builderDownload').addEventListener('click', () => {
+    if (!builderProject) return;
+    const url = URL.createObjectURL(websiteZip(builderProject.html));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'noir-website.zip';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
   async function openChat(id) {
     if (sending) return;
     try {
       const { chat } = await api(`/api/chats/${encodeURIComponent(id)}`);
       editingLastMessage = false;
       activeChatId = chat.id;
+      showBuilder(chat.project);
+      if (chat.project) document.querySelector('input[name="noir-mode"][value="code"]').checked = true;
       rememberActiveChat(activeChatId);
       messages.replaceChildren();
       chat.messages.forEach(item => addMessage(item.role, item.text, item.role === 'user' ? item.usage : null, '', false, item.attachments?.map(file => file.name) || []));
@@ -586,6 +674,8 @@
   }
 
   function startNewChat(focus = true) {
+    if (sending) return;
+    showBuilder(null);
     editingLastMessage = false;
     activeChatId = null;
     rememberActiveChat(null);
@@ -741,6 +831,12 @@
     if (!value) {
       return;
     }
+    const build = !options.regenerate && !options.edit && !pickedFiles.length &&
+      (Boolean(builderProject && document.querySelector('input[name="noir-mode"][value="code"]').checked) || /^(?:please\s+)?(?:build|create|make|generate|design)\b[^.!?]{0,160}\b(?:website|web app|landing page|portfolio site|webpage)\b/i.test(value));
+    if (build) {
+      document.querySelector('input[name="noir-mode"][value="code"]').checked = true;
+      showBuilder(builderProject, builderProject ? 'Updating your website…' : 'Building your website…');
+    }
     sending = true;
     $('send').disabled = true;
     input.disabled = true;
@@ -758,9 +854,10 @@
       const pluginNames = [...selectedIntegrations.values()].filter(item => item.type === 'Plugin').map(item => item.name);
       const result = await api('/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ chatId: activeChatId, message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
+        body: JSON.stringify({ chatId: activeChatId, message: value, build, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
       });
       activeChatId = result.chat.id;
+      if (build) showBuilder(result.chat.project);
       rememberActiveChat(activeChatId);
       typingRow.remove();
       if (options.regenerate || options.edit) {
@@ -775,6 +872,7 @@
       editingLastMessage = false;
     } catch (error) {
       failed = true;
+      if (build) showBuilder(builderProject, error.message);
       userRow?.remove();
       typingRow.remove();
       if (error.code === 'daily_token_limit') showDailyLimit(error.details);
@@ -785,7 +883,7 @@
       sending = false;
       $('send').disabled = false;
       input.disabled = false;
-      if (failed && options.edit) input.value = value;
+      if (failed && (options.edit || build)) input.value = value;
       else input.value = '';
       resize();
       if (!options.regenerate && $('limitBackdrop').hidden) input.focus({ preventScroll: true });

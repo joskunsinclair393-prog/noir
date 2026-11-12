@@ -462,3 +462,42 @@ test('Web Search uses authenticated Brave results and appends clickable source l
   assert.equal(disabled.status, 503);
   assert.equal((await disabled.json()).code, 'sandbox_unavailable');
 });
+
+test('website builds and revisions save to the owner chat and use the isolated preview shell', async () => {
+  let revision = 0;
+  const server = createNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: false, creditsEnabled: false, maxRequestsPerMinute: 100 },
+    generate: async args => {
+      assert.match(args.instructions, /Return only valid JSON/);
+      if (revision) assert.match(args.messages.at(-1).text, /portfolio/);
+      const html = '<!doctype html><html><body><h1>portfolio</h1>' + (revision++ ? '<style>body{background:purple}</style>' : '') + '</body></html>';
+      return { text: JSON.stringify({ html, summary: 'Updated your portfolio.' }), usage: { inputTokens: 20, outputTokens: 30 } };
+    },
+  });
+  const base = await listen(server);
+  const boot = await fetch(base + '/api/bootstrap');
+  const cookie = boot.headers.get('set-cookie').split(';')[0];
+  async function build(message, chatId) {
+    const response = await fetch(base + '/api/chat', {
+      method: 'POST',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ message, chatId, build: true }),
+    });
+    const result = await response.json();
+    assert.equal(response.status, 200, result.error);
+    return result.chat;
+  }
+  const original = await build('Build me a modern portfolio website.');
+  assert.match(original.project.html, /portfolio/);
+  assert.equal(original.messages.at(-1).text, 'Updated your portfolio.');
+  const revised = await build('Make the background purple.', original.id);
+  assert.match(revised.project.html, /background:purple/);
+  const url = base + '/api/chats/' + original.id;
+  const reopened = await fetch(url, { headers: { cookie } });
+  assert.deepEqual((await reopened.json()).chat.project, revised.project);
+  assert.equal((await fetch(url)).status, 404);
+  const preview = await fetch(base + '/project-preview');
+  assert.match(preview.headers.get('content-security-policy'), /sandbox allow-scripts/);
+  assert.match(await preview.text(), /sandbox="allow-scripts"/);
+});
