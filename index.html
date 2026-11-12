@@ -59,7 +59,11 @@
   </aside>
   <main class="main">
     <header class="topbar">
-      <div class="topbar-leading"><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Hide sidebar" title="Hide sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button><button type="button" class="model home-button" id="homeButtonTop" aria-label="Go to the NOIR home page"><img class="logo" src="logo.svg" alt="">NOIR <span>· Assistant</span></button></div>
+      <div class="topbar-leading"><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Hide sidebar" title="Hide sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button><button type="button" class="model home-button" id="homeButtonTop" aria-label="Go to the NOIR home page"><img class="logo" src="logo.svg" alt="">NOIR</button></div>
+      <fieldset class="mode-switch" aria-label="NOIR mode">
+        <label><input type="radio" name="noir-mode" value="assistant" checked><span>Assistant</span></label>
+        <label><input type="radio" name="noir-mode" value="code"><span>Code</span></label>
+      </fieldset>
       <div class="topbar-actions">
         <div class="profile-wrap" id="profileWrap" hidden>
           <button type="button" class="profile-trigger" id="profileTrigger" aria-label="Open profile" aria-haspopup="menu" aria-expanded="false">
@@ -84,20 +88,25 @@
     <section class="chat">
       <div class="welcome" id="welcome">
         <img class="welcome-logo" src="logo.svg" alt="">
+        <div class="assistant-intro">
         <div class="eyebrow">A space for anything</div>
         <h1>What’s on your mind?</h1>
         <p>Ask a question, explore an idea, or make something remarkable.</p>
+        </div>
+        <div class="code-intro">
+          <h1>NOIR Code</h1>
+          <p>Ask about your code, troubleshoot an error, or plan your next build. The browser editor is in development.</p>
+        </div>
         <div class="suggestions">
           <button class="suggestion" data-prompt="Help me come up with a creative project idea."><b>✳ &nbsp; Brainstorm</b>Find a fresh idea to explore</button>
           <button class="suggestion" data-prompt="Explain a difficult topic in simple terms."><b>◈ &nbsp; Learn something</b>Make a tricky topic easier</button>
           <button class="suggestion" data-prompt="Help me write a clear, engaging message."><b>✎ &nbsp; Write</b>Turn a rough idea into words</button>
           <button class="suggestion" data-prompt="Help me plan a project step by step."><b>▤ &nbsp; Make a plan</b>Break a goal into steps</button>
+          <button class="suggestion code-starter" data-prompt="Help me debug a programming error. Ask me for the error message and the relevant code."><b>Debug an error</b>Work through a stack trace</button>
+          <button class="suggestion code-starter" data-prompt="Help me plan a software project. Ask me what I want to build, then suggest a structure and first steps."><b>Plan a build</b>Start a software project</button>
+          <button class="suggestion code-starter" data-prompt="Help me understand and refactor a function. Ask me to share the function and what it should do."><b>Review code</b>Understand and improve a function</button>
+          <button class="suggestion code-starter" data-prompt="Help me write tests for my code. Ask for the code and the test framework I use."><b>Write tests</b>Cover behavior and edge cases</button>
         </div>
-        <a class="ecosystem-card" href="https://github.com/joskunsinclair393-prog/noir/tree/main/apps/noir-code" target="_blank" rel="noopener noreferrer" aria-label="Explore the NOIR Code desktop app project">
-          <img src="logo.svg" alt="" class="ecosystem-logo">
-          <span class="ecosystem-copy"><b>NOIR Code</b><small>Explore the desktop coding app in development</small></span>
-          <span class="ecosystem-link">View project ↗</span>
-        </a>
       </div>
       <div class="messages" id="messages" aria-live="polite"></div>
     </section>
