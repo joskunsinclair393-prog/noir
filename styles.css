@@ -700,3 +700,53 @@ body.light-theme .app-notice{border-color:#e4c9c5;background:#fff8f6;color:#7144
 .integration-option:disabled .option-state{white-space:nowrap;font-size:9px}
 .message-attachments{margin-top:7px;padding-top:7px;border-top:1px solid #ffffff1a;color:#a9a9af;font-size:10px;line-height:1.45;overflow-wrap:anywhere}
 body.light-theme .message-attachments{border-color:#25252220;color:#5f5f58}
+
+.assistant-view { display:flex; flex:1; flex-direction:column; min-height:0; }
+body.light-theme :is(.browser-view,.view-switch) {
+  --noir-bg:var(--light-bg);
+  --noir-panel:var(--light-panel);
+  --noir-panel-raised:var(--light-raised);
+  --noir-border:var(--light-border);
+  --noir-text:var(--light-text);
+  --noir-muted:var(--light-muted);
+}
+.view-switch { display:flex; gap:3px; padding:3px; border:1px solid var(--noir-border); border-radius:11px; background:var(--noir-panel); }
+.view-switch button,.browser-toolbar button,.browser-chat-form button,.browser-ai header button {
+  border:1px solid var(--noir-border); background:var(--noir-panel-raised); color:var(--noir-text); border-radius:7px; padding:7px 10px; cursor:pointer;
+}
+.view-switch button { border-color:transparent; font-weight:650; font-size:13px; }
+.view-switch button[aria-pressed="true"] { background:var(--noir-text); color:var(--noir-bg); }
+.browser-view { display:flex; flex:1; min-height:0; flex-direction:column; padding:12px; gap:9px; }
+.browser-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.browser-navigation { display:flex; gap:4px; }
+.browser-toolbar button:disabled { opacity:.42; cursor:default; }
+.browser-address { display:flex; flex:1 1 240px; min-width:0; border:1px solid var(--noir-border); border-radius:8px; background:var(--noir-panel); }
+.browser-address input { min-width:0; flex:1; border:0; background:transparent; color:var(--noir-text); padding:9px 11px; font-size:14px; }
+.browser-address button { border:0; }
+.browser-toolbar a,.browser-embed-note a { color:var(--noir-text); font-size:12px; text-underline-offset:3px; }
+.browser-workspace { display:flex; flex:1; gap:9px; min-height:0; }
+.browser-viewer,.browser-ai { border:1px solid var(--noir-border); border-radius:10px; background:var(--noir-panel); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.browser-viewer { flex:1; min-width:0; }
+.browser-empty { flex:1; display:grid; align-content:center; justify-items:center; text-align:center; padding:16px; gap:8px; }
+.browser-empty h1,.browser-empty p { margin:0; }
+.browser-embed-note { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; padding:8px 10px; color:var(--noir-muted); font-size:12px; }
+.browser-viewer iframe { width:100%; flex:1; min-height:0; border:0; background:white; }
+.browser-ai { width:clamp(220px,31%,340px); padding:10px; gap:8px; }
+.browser-ai header { display:flex; align-items:center; gap:7px; }
+.browser-ai header button { margin-left:auto; font-size:11px; }
+.browser-ai-note,.browser-error,#browserChatStatus { margin:0; font-size:12px; color:var(--noir-text); }
+.browser-ai-note { color:var(--noir-muted); }
+#browserChatStatus:empty { display:none; }
+.browser-messages { flex:1; min-height:0; overflow:auto; }
+.browser-messages article { padding:8px 0; border-bottom:1px solid var(--noir-border); }
+.browser-messages p { white-space:pre-wrap; overflow-wrap:anywhere; margin:4px 0 0; font-size:13px; }
+.browser-chat-form { display:flex; align-items:end; gap:6px; }
+.browser-chat-form textarea { width:100%; min-width:0; resize:vertical; border:1px solid var(--noir-border); border-radius:7px; padding:7px; background:var(--noir-bg); color:var(--noir-text); }
+.assistant-view[hidden],.browser-view[hidden],.browser-view [hidden] { display:none; }
+@media(max-width:800px) {
+  .browser-view { padding:8px; overflow:auto; }
+  .browser-workspace { flex-direction:column; flex:1 0 auto; }
+  .browser-viewer { min-height:340px; min-height:max(340px,48dvh); }
+  .browser-ai { width:100%; min-height:250px; max-height:390px; }
+  .view-switch button { padding-inline:7px; font-size:12px; }
+}

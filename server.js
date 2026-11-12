@@ -788,7 +788,7 @@ export function createNoirServer(options = {}) {
     response.setHeader('x-frame-options', 'DENY');
     let authOrigin = '';
     try { if (config.supabaseUrl) authOrigin = new URL(config.supabaseUrl).origin; } catch {}
-    response.setHeader('content-security-policy', `default-src 'self'; connect-src 'self' ${authOrigin}; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`);
+    response.setHeader('content-security-policy', `default-src 'self'; connect-src 'self' ${authOrigin}; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src https:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`);
 
     const url = new URL(request.url, `http://${request.headers.host || '127.0.0.1'}`);
     try {
@@ -1017,7 +1017,7 @@ export function createNoirServer(options = {}) {
 
       if (request.method !== 'GET' && request.method !== 'HEAD') return sendJson(response, 405, { error: 'Method not allowed.' });
       const publicFiles = new Map([
-        ['/', 'index.html'], ['/index.html', 'index.html'], ['/styles.css', 'styles.css'], ['/script.js', 'script.js'], ['/logo.svg', 'logo.svg'], ['/logo.svg.png', 'logo.svg.png'], ['/robots.txt', 'robots.txt'], ['/sitemap.xml', 'sitemap.xml'],
+        ['/', 'index.html'], ['/index.html', 'index.html'], ['/styles.css', 'styles.css'], ['/script.js', 'script.js'], ['/browser.js', 'browser.js'], ['/logo.svg', 'logo.svg'], ['/logo.svg.png', 'logo.svg.png'], ['/robots.txt', 'robots.txt'], ['/sitemap.xml', 'sitemap.xml'],
       ]);
       const file = publicFiles.get(url.pathname);
       if (!file) return sendJson(response, 404, { error: 'Not found.' });

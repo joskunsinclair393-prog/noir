@@ -60,6 +60,10 @@
   <main class="main">
     <header class="topbar">
       <div class="topbar-leading"><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Hide sidebar" title="Hide sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button><button type="button" class="model home-button" id="homeButtonTop" aria-label="Go to the NOIR home page"><img class="logo" src="logo.svg" alt="">NOIR</button></div>
+      <nav class="view-switch" aria-label="NOIR views">
+        <button type="button" id="assistantViewButton" aria-pressed="true" aria-controls="assistantView">Assistant</button>
+        <button type="button" id="browserViewButton" aria-pressed="false" aria-controls="browserView">Browser</button>
+      </nav>
       <div class="topbar-actions">
         <div class="profile-wrap" id="profileWrap" hidden>
           <button type="button" class="profile-trigger" id="profileTrigger" aria-label="Open profile" aria-haspopup="menu" aria-expanded="false">
@@ -80,6 +84,7 @@
         <button class="settings-trigger" id="settingsTrigger" aria-label="Settings" title="Settings">⚙</button>
       </div>
     </header>
+    <section id="assistantView" class="assistant-view" aria-label="NOIR Assistant">
     <div class="app-notice" id="appNotice" role="status" hidden></div>
     <section class="chat">
       <div class="welcome" id="welcome">
@@ -121,6 +126,48 @@
       </div>
       <div class="disclaimer">AI can make mistakes. Check important information.</div>
     </div>
+    </section>
+    <section class="browser-view" id="browserView" aria-label="NOIR Browser" hidden>
+      <form class="browser-toolbar" id="browserToolbar">
+        <div class="browser-navigation">
+          <button type="button" id="browserBack" aria-label="Back" title="Back" disabled>←</button>
+          <button type="button" id="browserForward" aria-label="Forward" title="Forward" disabled>→</button>
+          <button type="button" id="browserRefresh" aria-label="Refresh" title="Refresh" disabled>↻</button>
+          <button type="button" id="browserHome" aria-label="Browser home" title="Browser home">⌂</button>
+        </div>
+        <div class="browser-address">
+          <input id="browserAddress" type="text" inputmode="url" autocomplete="off" spellcheck="false" aria-label="Website address" placeholder="Enter an HTTPS website">
+          <button type="submit" aria-label="Go to address" title="Go to address">→</button>
+        </div>
+        <a id="browserExternal" target="_blank" rel="noopener noreferrer" hidden>Open externally ↗</a>
+        <button type="button" id="browserSidebarToggle" aria-controls="browserSidebar" aria-expanded="true">AI sidebar</button>
+      </form>
+      <p id="browserAddressError" class="browser-error" role="alert" hidden></p>
+      <div class="browser-workspace">
+        <div class="browser-viewer">
+          <div id="browserEmpty" class="browser-empty">
+            <img src="logo.svg" alt="" width="48" height="48">
+            <h1>NOIR Browser</h1>
+            <p>Enter a website address to open it here.</p>
+          </div>
+          <div id="browserEmbedNotice" class="browser-embed-note" role="status" hidden>
+            <span id="browserEmbedStatus">Some sites block embedding. If the page is blank or blocked, open it in a new tab.</span>
+            <a id="browserFallback" target="_blank" rel="noopener noreferrer">Open in new tab ↗</a>
+          </div>
+          <iframe id="browserFrame" title="Website viewer" sandbox="allow-scripts" referrerpolicy="no-referrer" allow="camera 'none'; microphone 'none'; geolocation 'none'; payment 'none'" hidden></iframe>
+        </div>
+        <aside class="browser-ai" id="browserSidebar" aria-label="NOIR AI sidebar">
+          <header><img src="logo.svg" alt="" width="26" height="26"><strong>NOIR</strong><button type="button" id="browserClear">Clear conversation</button></header>
+          <p class="browser-ai-note">Paste text from a page to ask about it. NOIR cannot read the viewer yet. Messages are saved to chat history.</p>
+          <div class="browser-messages" id="browserMessages" role="log" aria-label="Browser conversation"></div>
+          <p id="browserChatStatus" role="status"></p>
+          <form class="browser-chat-form" id="browserChatForm">
+            <textarea id="browserPrompt" rows="2" maxlength="12000" aria-label="Ask NOIR" placeholder="Ask NOIR…"></textarea>
+            <button id="browserSend" type="submit">Send</button>
+          </form>
+        </aside>
+      </div>
+    </section>
   </main>
 </div>
 <svg class="logo-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">

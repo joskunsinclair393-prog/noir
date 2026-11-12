@@ -26,7 +26,10 @@
   function readAuthSession() {
     try { return JSON.parse(localStorage.getItem(authStorageKey) || 'null'); } catch { return null; }
   }
+  let browserWorkspace;
+
   function saveAuthSession(session) {
+    if (!session) browserWorkspace?.reset();
     authSession = session;
     try { session ? localStorage.setItem(authStorageKey, JSON.stringify(session)) : localStorage.removeItem(authStorageKey); } catch {}
   }
@@ -567,6 +570,7 @@
   }
 
   async function openChat(id) {
+    browserWorkspace?.showAssistant();
     if (sending || id === activeChatId) return;
     try {
       const { chat } = await api(`/api/chats/${encodeURIComponent(id)}`);
@@ -586,6 +590,7 @@
   }
 
   function startNewChat(focus = true) {
+    browserWorkspace?.showAssistant();
     if (sending) return;
     editingLastMessage = false;
     activeChatId = null;
@@ -866,5 +871,20 @@
       }
     }
   }
+  import('./browser.js').then(({ createBrowserWorkspace }) => {
+    browserWorkspace = createBrowserWorkspace({
+      async send(chatId, message) {
+        const result = await api('/api/chat', {
+          method: 'POST',
+          body: JSON.stringify({ chatId, message, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+        });
+        return result;
+      },
+      onChat({ chat, session }) {
+        updateChatSummary(chat);
+        updateSession(session);
+      },
+    });
+  }).catch(() => { $('browserViewButton').disabled = true; });
   initialize();
 })();
