@@ -19,6 +19,7 @@
   let activeChatId = null;
   let chats = [];
   let sessionInfo = null;
+  let integrationsInfo = null;
   let sending = false;
   let editingLastMessage = false;
 
@@ -209,6 +210,27 @@
     else if (!data.provider.keyConfigured) showNotice('AI replies are not configured yet. The site owner needs to finish the server setup.');
     else if (!data.provider.requestsEnabled) showNotice('AI replies are paused until the site owner enables the service.');
     else showNotice('The AI service needs attention. Please try again later or contact the site owner.');
+  }
+
+  function updateIntegrationAvailability(data) {
+    integrationsInfo = data || null;
+    document.querySelectorAll('.integration-option').forEach(button => {
+      const state = button.querySelector('.option-state');
+      const availability = button.dataset.type === 'Connector' ? data?.connectors?.[button.dataset.name] : data?.plugins?.[button.dataset.name];
+      const ready = Boolean(availability?.ready);
+      button.disabled = !ready;
+      button.setAttribute('aria-disabled', String(!ready));
+      if (!ready) {
+        state.textContent = button.dataset.type === 'Connector' ? 'Setup required' : 'Unavailable';
+        const help = button.querySelector('.setting-option-copy small');
+        if (help && availability?.reason === 'isolated_sandbox_required') help.textContent = 'Disabled until isolated execution is available';
+        else if (help && availability?.reason === 'missing_credentials') help.textContent = 'Search provider credentials are required';
+        else if (help && availability?.reason === 'disabled_by_owner') help.textContent = 'Disabled by the site owner';
+        else if (help && availability?.reason === 'oauth_not_implemented') help.textContent = 'OAuth setup is not available yet';
+      } else if (!selectedIntegrations.has(button.dataset.type + ':' + button.dataset.name)) {
+        state.textContent = button.dataset.type === 'Connector' ? (availability.connected ? 'Connected' : 'Connect') : 'Add';
+      }
+    });
   }
 
   function formatBillingDate(value) {
@@ -464,7 +486,7 @@
     return `<p>${source}</p>`.replace(/<p><\/p>/g, '').replace(/<p>(<h[234]>)/g, '$1').replace(/(<\/h[234]>)<br>/g, '$1').replace(/<p>(<ul>|<blockquote>|<pre)/g, '$1').replace(/(<\/ul>|<\/blockquote>|<\/pre>)<\/p>/g, '$1');
   }
 
-  function addMessage(role, text, usage = null, state = '', shouldScroll = true) {
+  function addMessage(role, text, usage = null, state = '', shouldScroll = true, attachmentNames = []) {
     const row = document.createElement('div');
     row.className = 'message ' + role + (state ? ' ' + state : '');
     if (role === 'assistant') {
@@ -475,6 +497,12 @@
     bubble.className = 'bubble';
     if (role === 'assistant' && !state) bubble.innerHTML = renderMarkdown(text);
     else bubble.textContent = text;
+    if (role === 'user' && attachmentNames.length) {
+      const label = document.createElement('div');
+      label.className = 'message-attachments';
+      label.textContent = `📎 ${attachmentNames.join(' · ')}`;
+      bubble.append(document.createElement('br'), label);
+    }
     row.append(bubble);
     messages.append(row);
     if (role === 'assistant' && !state && !row.classList.contains('typing')) {
@@ -546,7 +574,7 @@
       activeChatId = chat.id;
       rememberActiveChat(activeChatId);
       messages.replaceChildren();
-      chat.messages.forEach(item => addMessage(item.role, item.text, item.role === 'user' ? item.usage : null, '', false));
+      chat.messages.forEach(item => addMessage(item.role, item.text, item.role === 'user' ? item.usage : null, '', false, item.attachments?.map(file => file.name) || []));
       scrollMessagesToBottom('auto');
       $('welcome').hidden = true;
       clearDraft();
@@ -583,12 +611,22 @@
   $('chooseImages').addEventListener('click', () => { closeAttachMenu(); imageInput.click(); });
   [fileInput, imageInput].forEach(element => element.addEventListener('change', () => {
     for (const file of element.files) {
-      if (!pickedFiles.some(item => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified)) pickedFiles.push(file);
+      const extension = file.name.split('.').pop().toLowerCase();
+      const allowed = new Set(['application/pdf', 'text/plain', 'text/csv', 'text/markdown', 'application/json', 'image/png', 'image/jpeg', 'image/webp']);
+      const accepted = allowed.has(file.type) || /\.(pdf|txt|csv|md|markdown|json|png|jpe?g|webp)$/i.test(file.name);
+      if (!accepted) { showNotice(`“${file.name}” is not a supported file type.`); continue; }
+      if (file.size < 1 || file.size > (integrationsInfo?.fileLimits?.maxFileBytes || 3 * 1024 * 1024)) { showNotice(`Each file must be smaller than 3 MB: “${file.name}”.`); continue; }
+      if (pickedFiles.some(item => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified)) continue;
+      const existingBytes = pickedFiles.reduce((sum, picked) => sum + picked.size, 0);
+      if (pickedFiles.length >= (integrationsInfo?.fileLimits?.maxFiles || 4) || existingBytes + file.size > (integrationsInfo?.fileLimits?.maxTotalBytes || 5 * 1024 * 1024)) { showNotice('Attach up to 4 files totaling 5 MB or less per message.'); continue; }
+      if (!file.type && !extension) { showNotice(`“${file.name}” is missing a supported file type.`); continue; }
+      pickedFiles.push(file);
     }
     renderAttachments();
     element.value = '';
   }));
   document.querySelectorAll('.integration-option').forEach(button => button.addEventListener('click', () => {
+    if (button.disabled) return;
     const key = button.dataset.type + ':' + button.dataset.name;
     if (selectedIntegrations.has(key)) selectedIntegrations.delete(key);
     else selectedIntegrations.set(key, { type: button.dataset.type, name: button.dataset.name });
@@ -698,23 +736,29 @@
   async function send(text = input.value, options = {}) {
     if (sending) return;
     options = { ...options, edit: options.edit ?? (!options.regenerate && editingLastMessage) };
-    const value = String(text || '').trim();
+    let value = String(text || '').trim();
+    if (!value && pickedFiles.length) value = 'Analyze the attached file(s) and summarize the key information.';
     if (!value) {
-      if (pickedFiles.length || selectedIntegrations.size) addMessage('assistant', 'File uploads, connectors, and plugins are preview controls in this build. Type a message to send it to the AI provider.', null, 'error');
       return;
     }
-    const extraSelections = pickedFiles.length || selectedIntegrations.size;
     sending = true;
     $('send').disabled = true;
     input.disabled = true;
     let failed = false;
-    const userRow = options.regenerate || options.edit ? null : addMessage('user', value);
+    const attachmentNames = pickedFiles.map(file => file.name);
+    const userRow = options.regenerate || options.edit ? null : addMessage('user', value, null, '', true, attachmentNames);
     const typingRow = addTyping();
     $('welcome').hidden = true;
     try {
+      const encodedAttachments = await Promise.all(pickedFiles.map(async file => ({
+        name: file.name,
+        mimeType: file.type || ({ pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', md: 'text/markdown', markdown: 'text/markdown', json: 'application/json', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }[file.name.split('.').pop().toLowerCase()] || ''),
+        data: (await fileToDataUrl(file)).split(',')[1] || '',
+      })));
+      const pluginNames = [...selectedIntegrations.values()].filter(item => item.type === 'Plugin').map(item => item.name);
       const result = await api('/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ chatId: activeChatId, message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+        body: JSON.stringify({ chatId: activeChatId, message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
       });
       activeChatId = result.chat.id;
       rememberActiveChat(activeChatId);
@@ -726,8 +770,7 @@
       addMessage('assistant', result.chat.messages.at(-1).text);
       updateChatSummary(result.chat);
       updateSession(result.session);
-      if (extraSelections) showNotice('Only your typed message was sent. File uploads, connectors, and plugins are still preview controls.');
-      else if (sessionInfo?.provider.ready) showNotice('', false);
+      if (sessionInfo?.provider.ready) showNotice('', false);
       clearDraft();
       editingLastMessage = false;
     } catch (error) {
@@ -749,6 +792,15 @@
     }
   }
 
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error(`Could not read “${file.name}”.`));
+      reader.readAsDataURL(file);
+    });
+  }
+
   $('send').addEventListener('click', () => send());
   input.addEventListener('input', resize);
   input.addEventListener('keydown', event => {
@@ -764,6 +816,7 @@
     const data = await api(`/api/bootstrap?timeZone=${timeZone}`);
     chats = data.chats || [];
     updateSession(data.session);
+    updateIntegrationAvailability(data.integrations);
     renderChatHistory();
     const rememberedChat = getRememberedChat();
     if (rememberedChat && chats.some(chat => chat.id === rememberedChat)) await openChat(rememberedChat);

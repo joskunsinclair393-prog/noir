@@ -111,8 +111,8 @@
                 <button type="button" role="menuitem" class="menu-destination" data-open-settings="connectors"><span class="menu-icon">⤴</span><span><b>Connectors</b><small>Browse connected services</small></span><span class="menu-chevron">›</span></button>
                 <button type="button" role="menuitem" class="menu-destination" data-open-settings="plugins"><span class="menu-icon">✳</span><span><b>Plugins</b><small>Choose tools for your chats</small></span><span class="menu-chevron">›</span></button>
               </div>
-              <input id="fileInput" type="file" multiple hidden>
-              <input id="imageInput" type="file" accept="image/*" multiple hidden>
+              <input id="fileInput" type="file" accept=".pdf,.txt,.csv,.md,.markdown,.json,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,text/csv,text/markdown,application/json,image/png,image/jpeg,image/webp" multiple hidden>
+              <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
             </div>
             <span class="hint">Enter to send · Shift + Enter for a new line</span>
           </div>
@@ -168,7 +168,7 @@
           <p class="plan-fair-use">Plus removes NOIR’s daily quota and per-account message cap. AI provider quotas, safety systems, and service-wide fair-use safeguards still apply.</p>
         </section>
         <section class="settings-panel" data-settings-panel="connectors" hidden>
-          <div class="settings-panel-title"><div><h3>Connectors</h3><p>Link services to bring your files into NOIR.</p></div><span class="preview-tag">PREVIEW</span></div>
+          <div class="settings-panel-title"><div><h3>Connectors</h3><p>Link services to bring your files into NOIR.</p></div><span class="preview-tag">AVAILABILITY</span></div>
           <div class="settings-options">
             <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Connector" data-name="Google Drive"><span class="setting-service-icon"><svg class="service-logo"><use href="#logo-drive"/></svg></span><span class="setting-option-copy"><b>Google Drive</b><small>Choose files from Drive</small></span><span class="option-state">Connect</span></button>
             <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Connector" data-name="Dropbox"><span class="setting-service-icon"><svg class="service-logo"><use href="#logo-dropbox"/></svg></span><span class="setting-option-copy"><b>Dropbox</b><small>Browse your Dropbox files</small></span><span class="option-state">Connect</span></button>
@@ -181,7 +181,7 @@
           </div>
         </section>
         <section class="settings-panel" data-settings-panel="plugins" hidden>
-          <div class="settings-panel-title"><div><h3>Plugins</h3><p>Choose tools to add to a message.</p></div><span class="preview-tag">PREVIEW</span></div>
+          <div class="settings-panel-title"><div><h3>Plugins</h3><p>Choose available tools to add to a message.</p></div><span class="preview-tag">AVAILABILITY</span></div>
           <div class="settings-options">
             <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Plugin" data-name="Web Search"><span class="setting-service-icon"><svg class="service-logo"><use href="#plugin-search"/></svg></span><span class="setting-option-copy"><b>Web Search</b><small>Find current information</small></span><span class="option-state">Add</span></button>
             <button type="button" role="checkbox" aria-checked="false" class="integration-option setting-option" data-type="Plugin" data-name="Code Interpreter"><span class="setting-service-icon"><svg class="service-logo"><use href="#plugin-code"/></svg></span><span class="setting-option-copy"><b>Code Interpreter</b><small>Work with code and data</small></span><span class="option-state">Add</span></button>
