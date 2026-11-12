@@ -596,7 +596,7 @@
   function refreshBuilderPreview() {
     const files = projectFiles();
     const html = files['index.html'] || '';
-    builderFrame.contentWindow?.postMessage({ type: 'noir-preview', html, files }, '*');
+    builderFrame.contentWindow?.postMessage({ type: 'noir-preview', html, files, projectId: activeChatId }, '*');
   }
 
   function syncProjectFiles() {

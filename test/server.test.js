@@ -1,3 +1,5 @@
+import { storefront } from "./fixtures/storefront.mjs";
+
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -553,5 +555,47 @@ test('gaming, portfolio, and business projects preserve unchanged files across r
     }
     const reopened = await fetch(base + '/api/chats/' + chat.id, { headers });
     assert.deepEqual((await reopened.json()).chat.project, revised.project);
+  }
+});
+
+test('storefront validation rejects a missing cart without replacing the saved project', async () => {
+  let calls = 0;
+  const server = createNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: false, creditsEnabled: false },
+    generate: async ({ instructions }) => {
+      assert.match(instructions, /Apply both criteria in the same rendering function/);
+      const files = calls++ ? { 'index.html': storefront['index.html'].replace('data-cart-total', 'id="total"') } : storefront;
+      return { text: JSON.stringify({ files, summary: 'Store ready.' }), usage: { inputTokens: 5, outputTokens: 6 } };
+    },
+  });
+  const base = await listen(server);
+  const cookie = (await fetch(base + '/api/bootstrap')).headers.get('set-cookie').split(';')[0];
+  const headers = { cookie, origin: base, 'content-type': 'application/json' };
+  const build = chatId => fetch(base + '/api/chat', {
+    method: 'POST', headers,
+    body: JSON.stringify({ message: 'Build a clothing website with a shopping cart, product search and category filters.', chatId, build: true }),
+  });
+  const created = await build();
+  assert.equal(created.status, 200);
+  const { chat } = await created.json();
+  const rejected = await build(chat.id);
+  assert.equal(rejected.status, 400);
+  assert.match((await rejected.json()).error, /missing cart/);
+  const reopened = await fetch(base + '/api/chats/' + chat.id, { headers });
+  assert.deepEqual((await reopened.json()).chat.project, chat.project);
+});
+
+test('website ZIP stores each exported project file with the original bytes', async () => {
+  const { readFileSync, writeFileSync } = await import('node:fs');
+  const { execFileSync } = await import('node:child_process');
+  const script = readFileSync(new URL('../script.js', import.meta.url), 'utf8');
+  const start = script.indexOf('  function websiteZip(');
+  const end = script.indexOf("  $('builderDownload').addEventListener", start);
+  const zip = new Function(script.slice(start, end) + '; return websiteZip')();
+  const path = temporaryStore() + '.zip';
+  writeFileSync(path, Buffer.from(await zip(storefront).arrayBuffer()));
+  for (const [name, content] of Object.entries(storefront)) {
+    assert.equal(execFileSync('unzip', ['-p', path, name], { encoding: 'utf8' }), content);
   }
 });
