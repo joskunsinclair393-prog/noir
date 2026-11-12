@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 16909)
-Total output lines: 1045
-
 import { createServer } from 'node:http';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -558,7 +555,59 @@ export function createNoirServer(options = {}) {
       stripe_customer_id: customerId || existing?.stripe_customer_id || null,
       stripe_subscription_id: subscriptionId || existing?.stripe_subscription_id || null,
       status: ['incomplete', 'incomplete_expired', 'trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused'].includes(subscription.status) ? subscription.status : 'inactive',
-      current_per…909 tokens truncated…null, 'GET');
+      current_period_start: toIso(periodStart),
+      current_period_end: toIso(periodEnd),
+      renewal_date: toIso(periodEnd),
+      cancel_at_period_end: Boolean(subscription.cancel_at_period_end || subscription.cancel_at),
+      cancel_at: toIso(subscription.cancel_at),
+      canceled_at: toIso(subscription.canceled_at),
+      last_stripe_event_created: Number(event.created || 0),
+      updated_at: new Date().toISOString(),
+    };
+    const url = `${config.supabaseUrl}/rest/v1/noir_subscriptions?on_conflict=user_id`;
+    const response = await (options.fetchImpl || fetch)(url, {
+      method: 'POST',
+      headers: { apikey: config.supabaseServiceRoleKey, authorization: `Bearer ${config.supabaseServiceRoleKey}`, 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw Object.assign(new Error('NOIR could not save the verified subscription update.'), { status: 503, code: 'billing_storage_unavailable' });
+  }
+
+  async function stripeEventWasProcessed(eventId) {
+    const query = new URLSearchParams({ event_id: `eq.${eventId}`, select: 'event_id', limit: '1' });
+    const response = await (options.fetchImpl || fetch)(`${config.supabaseUrl}/rest/v1/noir_stripe_events?${query}`, {
+      headers: { apikey: config.supabaseServiceRoleKey, authorization: `Bearer ${config.supabaseServiceRoleKey}` },
+    });
+    if (!response.ok) throw Object.assign(new Error('NOIR could not check billing event status.'), { status: 503, code: 'billing_storage_unavailable' });
+    return (await response.json().catch(() => [])).length > 0;
+  }
+
+  async function recordStripeEvent(event) {
+    const response = await (options.fetchImpl || fetch)(`${config.supabaseUrl}/rest/v1/noir_stripe_events?on_conflict=event_id`, {
+      method: 'POST',
+      headers: { apikey: config.supabaseServiceRoleKey, authorization: `Bearer ${config.supabaseServiceRoleKey}`, 'content-type': 'application/json', prefer: 'resolution=ignore-duplicates,return=minimal' },
+      body: JSON.stringify({ event_id: event.id, event_type: event.type, stripe_created: event.created }),
+    });
+    if (!response.ok) throw Object.assign(new Error('NOIR could not record the billing event.'), { status: 503, code: 'billing_storage_unavailable' });
+  }
+
+  async function handleStripeEvent(event) {
+    if (await stripeEventWasProcessed(event.id)) return;
+    const object = event.data?.object;
+    if (!object) throw Object.assign(new Error('Stripe sent an invalid event.'), { status: 400, code: 'invalid_billing_event' });
+    const subscriptionEvents = new Set(['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'customer.subscription.paused', 'customer.subscription.resumed']);
+    let subscription = null;
+    let fallbackUserId = null;
+    if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+      const subscriptionId = typeof object.subscription === 'string' ? object.subscription : object.subscription?.id;
+      if (object.mode === 'subscription' && subscriptionId) {
+        fallbackUserId = object.client_reference_id || object.metadata?.supabase_user_id || null;
+        subscription = await stripeApi(`/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, null, 'GET');
+      }
+    } else if (subscriptionEvents.has(event.type)) {
+      const subscriptionId = object.id;
+      if (event.type === 'customer.subscription.deleted') subscription = object;
+      else subscription = await stripeApi(`/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, null, 'GET');
     } else if (event.type === 'invoice.payment_failed' || event.type === 'invoice.paid') {
       const subscriptionId = object.subscription || object.parent?.subscription_details?.subscription || null;
       if (subscriptionId) subscription = await stripeApi(`/v1/subscriptions/${encodeURIComponent(typeof subscriptionId === 'string' ? subscriptionId : subscriptionId.id)}`, null, 'GET');
