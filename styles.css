@@ -710,18 +710,37 @@ body.light-theme .message-attachments{border-color:#25252220;color:#5f5f58}
 
 /* Assistant and Code share the current conversation and composer. */
 .mode-switch {
-  display:flex; min-width:0; margin:0; padding:3px; gap:2px;
-  border:1px solid var(--noir-border); border-radius:10px; background:var(--noir-panel);
+  --mode-bg:#202024;
+  --mode-border:#777780;
+  --mode-text:#f4f4f5;
+  --mode-hover:#38383f;
+  --mode-selected:#f4f4f5;
+  --mode-selected-text:#17171b;
+  display:flex; flex:none; min-width:0; margin:0; padding:3px; gap:3px;
+  border:1px solid var(--mode-border); border-radius:12px; background:var(--mode-bg);
+}
+body.light-theme .mode-switch {
+  --mode-bg:#ececef;
+  --mode-border:#777780;
+  --mode-text:#26262b;
+  --mode-hover:#d9d9df;
+  --mode-selected:#242429;
+  --mode-selected-text:#fff;
 }
 .mode-switch label { position:relative; cursor:pointer; }
 .mode-switch input { position:absolute; opacity:0; width:1px; height:1px; }
-.mode-switch span { display:block; padding:6px 11px; border-radius:6px; font-size:12px; }
-.mode-switch input:checked + span { background:var(--noir-panel-raised); color:var(--noir-text); box-shadow:0 0 0 1px var(--noir-border); }
-.mode-switch input:focus-visible + span { outline:2px solid var(--noir-accent); outline-offset:2px; }
+.mode-switch span {
+  display:grid; place-items:center; min-height:38px; padding:0 15px;
+  border-radius:8px; color:var(--mode-text); font-size:14px; font-weight:700;
+}
+.mode-switch label:hover span { background:var(--mode-hover); }
+.mode-switch input:checked + span { background:var(--mode-selected); color:var(--mode-selected-text); }
+.mode-switch input:focus-visible + span { outline:2px solid var(--mode-text); outline-offset:-3px; }
+.mode-switch input:checked:focus-visible + span { outline-color:var(--mode-selected-text); }
 .code-intro,.suggestions .code-starter { display:none; }
 .main:has(input[name="noir-mode"][value="code"]:checked) :is(.assistant-intro,.suggestion:not(.code-starter)) { display:none; }
 .main:has(input[name="noir-mode"][value="code"]:checked) :is(.code-intro,.suggestions .code-starter) { display:block; }
 @media(max-width:420px) {
-  .mode-switch span { padding:5px 7px; font-size:11px; }
+  .mode-switch span { min-height:36px; padding-inline:9px; font-size:13px; }
   .topbar { padding-inline:8px; gap:5px; }
 }
