@@ -501,3 +501,57 @@ test('website builds and revisions save to the owner chat and use the isolated p
   assert.match(preview.headers.get('content-security-policy'), /sandbox allow-scripts/);
   assert.match(await preview.text(), /sandbox="allow-scripts"/);
 });
+
+test('gaming, portfolio, and business projects preserve unchanged files across revisions', async () => {
+  const cases = [
+    ['gaming', 'Games', 'Filter games'],
+    ['portfolio', 'Work', 'Filter projects'],
+    ['business', 'Services', 'Show services'],
+  ];
+  const server = createNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: false, creditsEnabled: false, maxRequestsPerMinute: 100 },
+    generate: async ({ messages, instructions }) => {
+      assert.match(instructions, /working accessible mobile menu/);
+      const prompt = messages.at(-1).text;
+      const example = cases.find(([kind]) => prompt.includes(kind));
+      if (prompt.startsWith('Change')) {
+        assert.match(prompt, /styles\.css.*script\.js/);
+        return { text: JSON.stringify({ files: { 'styles.css': 'body{color:purple}' }, summary: 'Changed the palette.' }), usage: { inputTokens: 5, outputTokens: 6 } };
+      }
+      assert.ok(example);
+      const [, section, action] = example;
+      const html = '<!doctype html><html><head><meta name="viewport" content="width=device-width"><link rel="stylesheet" href="styles.css"><script src="script.js" defer></script></head><body><nav><a href="#content">' + section + '</a></nav><main id="content"><button id="filter">' + action + '</button><article>Card</article></main><footer>Contact</footer></body></html>';
+      return { text: JSON.stringify({ files: { 'index.html': html, 'styles.css': '@media(max-width:600px){main{display:block}}', 'script.js': "document.querySelector('#filter').onclick = () => document.querySelector('article').toggleAttribute('hidden');" }, summary: 'Created site.' }), usage: { inputTokens: 5, outputTokens: 6 } };
+    },
+  });
+  const base = await listen(server);
+  const boot = await fetch(base + '/api/bootstrap');
+  const cookie = boot.headers.get('set-cookie').split(';')[0];
+  const headers = { cookie, origin: base, 'content-type': 'application/json' };
+  async function build(message, chatId) {
+    const response = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify({ message, chatId, build: true }) });
+    const data = await response.json();
+    assert.equal(response.status, 200, data.error);
+    return data.chat;
+  }
+  for (const [kind, section, action] of cases) {
+    const chat = await build('Build a ' + kind + ' website');
+    assert.ok(chat.project.html.includes('<a href="#content">' + section));
+    assert.ok(chat.project.html.includes(action));
+    assert.match(chat.project.html, /<footer>/);
+    assert.match(chat.project.files['styles.css'], /@media/);
+    const revised = await build('Change the palette', chat.id);
+    assert.equal(revised.project.html, chat.project.html);
+    assert.equal(revised.project.files['script.js'], chat.project.files['script.js']);
+    assert.equal(revised.project.files['styles.css'], 'body{color:purple}');
+    const route = base + '/api/chats/' + chat.id + '/project';
+    for (const [files, error] of [[{'../outside.js':'x'}, /Unsupported file/], [{'script.js':'const ='}, /JavaScript syntax error/]]) {
+      const rejected = await fetch(route, { method: 'PUT', headers, body: JSON.stringify({ files, revision: revised.project.revision }) });
+      assert.equal(rejected.status, 400);
+      assert.match((await rejected.json()).error, error);
+    }
+    const reopened = await fetch(base + '/api/chats/' + chat.id, { headers });
+    assert.deepEqual((await reopened.json()).chat.project, revised.project);
+  }
+});

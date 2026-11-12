@@ -8,6 +8,16 @@
   addEventListener('message', event => {
     if (event.source !== parent || event.origin !== location.origin) return;
     if (event.data?.type !== 'noir-preview' || typeof event.data.html !== 'string') return;
-    preview.srcdoc = event.data.html;
+    const files = event.data.files || {};
+    const asset = (name, mime) => {
+      if (typeof files[name] !== 'string') return null;
+      const bytes = new TextEncoder().encode(files[name]);
+      return 'data:' + mime + ';base64,' + btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''));
+    };
+    const css = asset('styles.css', 'text/css');
+    const js = asset('script.js', 'text/javascript');
+    preview.srcdoc = event.data.html
+      .replace(/<link\b[^>]*>/gi, tag => css ? tag.replace(/\bhref\s*=\s*(["'])(?:\.\/)?styles\.css\1/i, 'href="' + css + '"') : tag)
+      .replace(/<script\b[^>]*>/gi, tag => js ? tag.replace(/\bsrc\s*=\s*(["'])(?:\.\/)?script\.js\1/i, 'src="' + js + '"') : tag);
   });
 </script>

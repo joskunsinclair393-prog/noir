@@ -153,12 +153,12 @@
         <iframe id="builderFrame" title="Website preview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
       </div>
       <div class="builder-editor" id="builderEditor" hidden>
-        <nav aria-label="Project files"><strong>Project files</strong><button type="button" id="builderFile" aria-current="true">index.html</button></nav>
+        <nav aria-label="Project files"><strong>Project files</strong><select id="builderFile" aria-label="Project file"><option>index.html</option></select></nav>
         <div class="builder-edit-pane">
           <div class="builder-edit-header"><span id="builderSaveState" role="status">Saved</span><button type="button" id="builderSave" disabled>Save file</button></div>
           <div class="builder-edit-stack">
             <pre id="builderHighlight" aria-hidden="true"></pre>
-            <textarea id="builderSource" aria-label="index.html source" spellcheck="false" maxlength="48000" wrap="off"></textarea>
+            <textarea id="builderSource" aria-label="Project file source" spellcheck="false" maxlength="48000" wrap="off"></textarea>
           </div>
         </div>
       </div>

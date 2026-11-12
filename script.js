@@ -587,8 +587,25 @@
   const builderFrame = $('builderFrame');
   const builderSource = $('builderSource');
 
-  function refreshBuilderPreview(html = builderSource.value) {
-    builderFrame.contentWindow?.postMessage({ type: 'noir-preview', html }, '*');
+  let activeProjectFile = 'index.html';
+
+  function projectFiles() {
+    return builderProject ? { 'index.html': builderProject.html, ...builderProject.files } : {};
+  }
+
+  function refreshBuilderPreview() {
+    const files = projectFiles();
+    const html = files['index.html'] || '';
+    builderFrame.contentWindow?.postMessage({ type: 'noir-preview', html, files }, '*');
+  }
+
+  function syncProjectFiles() {
+    const files = projectFiles();
+    const names = Object.keys(files);
+    if (!names.includes(activeProjectFile)) activeProjectFile = 'index.html';
+    $('builderFile').replaceChildren(...names.map(name => new Option(name, name)));
+    $('builderFile').value = activeProjectFile;
+    builderSource.value = files[activeProjectFile] || '';
   }
 
   function updateEditor() {
@@ -604,7 +621,7 @@
     }), document.createTextNode('\n'));
     highlight.scrollTop = builderSource.scrollTop;
     highlight.scrollLeft = builderSource.scrollLeft;
-    const dirty = Boolean(builderProject && value !== builderProject.html);
+    const dirty = Boolean(builderProject && value !== projectFiles()[activeProjectFile]);
     $('builderSaveState').textContent = savingProject ? 'Saving…' : dirty ? 'Unsaved changes' : builderProject ? 'Saved' : 'No file yet';
     $('builderSave').disabled = !dirty || savingProject || sending;
   }
@@ -614,7 +631,7 @@
     builderProject = project || null;
     $('builderPanel').hidden = !project && !status;
     $('builderStatus').textContent = status || 'Project saved';
-    if (changed || !project) builderSource.value = project?.html || '';
+    if (changed || !project) syncProjectFiles();
     builderSource.disabled = !project;
     $('builderDownload').disabled = !project;
     updateEditor();
@@ -661,15 +678,15 @@
   $('builderSave').addEventListener('click', async () => {
     if (!builderProject || savingProject || sending) return;
     savingProject = true;
-    const html = builderSource.value;
+    const files = { [activeProjectFile]: builderSource.value };
     updateEditor();
     try {
       const { project } = await api('/api/chats/' + encodeURIComponent(activeChatId) + '/project', {
-        method: 'PUT', body: JSON.stringify({ html, revision: builderProject.revision || 0 }),
+        method: 'PUT', body: JSON.stringify({ files, revision: builderProject.revision || 0 }),
       });
       builderProject = project;
       $('builderStatus').textContent = 'Project saved';
-      refreshBuilderPreview(project.html);
+      refreshBuilderPreview();
     } catch (error) {
       $('builderStatus').textContent = error.message;
     } finally {
@@ -678,58 +695,78 @@
     }
   });
 
-  builderFrame.addEventListener('load', () => refreshBuilderPreview(builderProject?.html || ''));
+  builderFrame.addEventListener('load', refreshBuilderPreview);
   $('builderPreview').addEventListener('click', () => showBuilderTab(false));
   $('builderCode').addEventListener('click', () => showBuilderTab(true));
-  $('builderFile').addEventListener('click', () => builderSource.focus());
-  $('builderRefresh').addEventListener('click', () => refreshBuilderPreview(builderProject?.html || ''));
+  $('builderFile').addEventListener('change', event => {
+    if (!canLeaveProject()) {
+      event.target.value = activeProjectFile;
+      return;
+    }
+    activeProjectFile = event.target.value;
+    syncProjectFiles();
+    updateEditor();
+    builderSource.focus();
+  });
+  $('builderRefresh').addEventListener('click', refreshBuilderPreview);
   $('builderFullscreen').addEventListener('click', async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await $('builderPanel').requestFullscreen();
     } catch { $('builderStatus').textContent = 'Fullscreen is unavailable in this browser.'; }
   });
-  function websiteZip(html) {
+  function websiteZip(files) {
     const encoder = new TextEncoder();
-    const name = encoder.encode('index.html');
-    const bytes = encoder.encode(html);
-    let crc = 0xffffffff;
-    for (const byte of bytes) {
-      crc ^= byte;
-      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    const entries = [];
+    const directory = [];
+    let offset = 0;
+    let directorySize = 0;
+    for (const [filename, content] of Object.entries(files)) {
+      const name = encoder.encode(filename);
+      const bytes = encoder.encode(content);
+      let crc = 0xffffffff;
+      for (const byte of bytes) {
+        crc ^= byte;
+        for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+      }
+      crc ^= 0xffffffff;
+      const local = new DataView(new ArrayBuffer(30 + name.length));
+      const central = new DataView(new ArrayBuffer(46 + name.length));
+      local.setUint32(0, 0x04034b50, true);
+      local.setUint16(4, 20, true);
+      local.setUint16(12, 33, true);
+      local.setUint32(14, crc, true);
+      local.setUint32(18, bytes.length, true);
+      local.setUint32(22, bytes.length, true);
+      local.setUint16(26, name.length, true);
+      new Uint8Array(local.buffer).set(name, 30);
+      central.setUint32(0, 0x02014b50, true);
+      central.setUint16(4, 20, true);
+      central.setUint16(6, 20, true);
+      central.setUint16(14, 33, true);
+      central.setUint32(16, crc, true);
+      central.setUint32(20, bytes.length, true);
+      central.setUint32(24, bytes.length, true);
+      central.setUint16(28, name.length, true);
+      new Uint8Array(central.buffer).set(name, 46);
+      central.setUint32(42, offset, true);
+      entries.push(local.buffer, bytes);
+      directory.push(central.buffer);
+      offset += local.byteLength + bytes.length;
+      directorySize += central.byteLength;
     }
-    crc ^= 0xffffffff;
-    const local = new DataView(new ArrayBuffer(30 + name.length));
-    const central = new DataView(new ArrayBuffer(46 + name.length));
     const end = new DataView(new ArrayBuffer(22));
-    local.setUint32(0, 0x04034b50, true);
-    local.setUint16(4, 20, true);
-    local.setUint16(12, 33, true);
-    local.setUint32(14, crc, true);
-    local.setUint32(18, bytes.length, true);
-    local.setUint32(22, bytes.length, true);
-    local.setUint16(26, name.length, true);
-    new Uint8Array(local.buffer).set(name, 30);
-    central.setUint32(0, 0x02014b50, true);
-    central.setUint16(4, 20, true);
-    central.setUint16(6, 20, true);
-    central.setUint16(14, 33, true);
-    central.setUint32(16, crc, true);
-    central.setUint32(20, bytes.length, true);
-    central.setUint32(24, bytes.length, true);
-    central.setUint16(28, name.length, true);
-    new Uint8Array(central.buffer).set(name, 46);
     end.setUint32(0, 0x06054b50, true);
-    end.setUint16(8, 1, true);
-    end.setUint16(10, 1, true);
-    end.setUint32(12, central.byteLength, true);
-    end.setUint32(16, local.byteLength + bytes.length, true);
-    return new Blob([local.buffer, bytes, central.buffer, end.buffer], { type: 'application/zip' });
+    end.setUint16(8, directory.length, true);
+    end.setUint16(10, directory.length, true);
+    end.setUint32(12, directorySize, true);
+    end.setUint32(16, offset, true);
+    return new Blob([...entries, ...directory, end.buffer], { type: 'application/zip' });
   }
 
   $('builderDownload').addEventListener('click', () => {
     if (!builderProject) return;
-    const url = URL.createObjectURL(websiteZip(builderProject.html));
+    const url = URL.createObjectURL(websiteZip(projectFiles()));
     const link = document.createElement('a');
     link.href = url;
     link.download = 'noir-website.zip';
@@ -738,8 +775,8 @@
   });
 
   function canLeaveProject() {
-    return !savingProject && (!builderProject || builderSource.value === builderProject.html ||
-      window.confirm('Discard unsaved edits to index.html?'));
+    return !savingProject && (!builderProject || builderSource.value === projectFiles()[activeProjectFile] ||
+      window.confirm('Discard unsaved edits to this file?'));
   }
 
   async function openChat(id) {
@@ -923,7 +960,7 @@
     }
     const build = !options.regenerate && !options.edit && !pickedFiles.length &&
       (Boolean(builderProject && document.querySelector('input[name="noir-mode"][value="code"]').checked) || /^(?:please\s+)?(?:build|create|make|generate|design)\b[^.!?]{0,160}\b(?:website|web app|landing page|portfolio site|webpage)\b/i.test(value));
-    if (build && (savingProject || (builderProject && builderSource.value !== builderProject.html))) {
+    if (build && (savingProject || (builderProject && builderSource.value !== projectFiles()[activeProjectFile]))) {
       $('builderStatus').textContent = 'Save your file before asking NOIR to revise it.';
       return;
     }
