@@ -37,3 +37,30 @@ test('reader extracts text and blocks private DNS, redirects and non-HTML', asyn
   await assert.rejects(readPublicPage(url, { resolveHost, transport: async () => response(401, {'content-type':'text/html'}, 'private') }));
   await assert.rejects(readPublicPage(url, { resolveHost, transport: async () => response(200, {'content-type':'application/json'}, '{}') }));
 });
+
+test('exploration ranks same-origin links, honors robots, bounds depth and cancels', async () => {
+  const { exploreWebsite } = await import('../website-explorer.js');
+  const root = 'https://example.com';
+  const visited = [];
+  const html = {
+    '/': '<a href="/about">About</a><a href="/events">Events</a><a href="/blocked">Events</a><a href="https://other.example.com/">Events</a>',
+    '/events': '<a href="/calendar">Calendar events</a>',
+    '/calendar': '<a href="/deep">More events</a>',
+  };
+  const read = async (url, options) => {
+    if (options.robots) return { text: 'User-agent: *\nDisallow: /blocked' };
+    if (!options.allowURL(url)) throw Error('Blocked by robots');
+    const path = new URL(url).pathname;
+    visited.push(path);
+    return { url, text: path, html: html[path] || '' };
+  };
+  const result = await exploreWebsite(root, 'Find events', { read });
+  assert.deepEqual(visited.slice(0,3), ['/', '/events', '/calendar']);
+  assert.ok(!visited.includes('/deep'));
+  assert.equal(result.failures[0], root + '/blocked');
+  assert.equal((await exploreWebsite(root, 'events', { read, limit: 2 })).pages.length, 2);
+  const controller = new AbortController();
+  await assert.rejects(exploreWebsite(root, 'events', {
+    read, signal: controller.signal, onPage: () => controller.abort(),
+  }));
+});

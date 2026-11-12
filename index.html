@@ -162,6 +162,10 @@
           <p class="browser-ai-note">Read a public page before asking NOIR about it. Messages are saved to chat history.</p>
           <div class="browser-page-controls">
             <button type="button" id="browserReadPage" disabled>Read Current Page</button>
+            <button type="button" id="browserExplore" disabled>Explore Website</button>
+            <button type="button" id="browserCancelExplore" hidden>Cancel exploration</button>
+            <p id="browserExploreStatus" role="status"></p>
+            <ol id="browserExploreProgress" aria-label="Pages checked" hidden></ol>
             <button type="button" id="browserClearContext" hidden>Clear Page Context</button>
             <p id="browserReadStatus" role="status"></p>
             <a id="browserPageSource" target="_blank" rel="noopener noreferrer" hidden></a>

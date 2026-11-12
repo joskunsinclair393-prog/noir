@@ -36,7 +36,7 @@ function pinnedRequest(url, ip, signal) {
       lookup: (_host, options, callback) => options.all
         ? callback(null, [{ address: ip, family: 4 }])
         : callback(null, ip, 4),
-      headers: { accept: 'text/html', 'accept-encoding': 'identity', 'user-agent': 'NOIR-Public-Page-Reader/1.0' },
+      headers: { accept: 'text/html, text/plain', 'accept-encoding': 'identity', 'user-agent': 'NOIR-Public-Page-Reader/1.0' },
     }, resolve);
     req.on('error', reject);
     req.end();
@@ -55,9 +55,12 @@ export function readableText(html) {
     .replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 10000);
 }
 
-export async function readPublicPage(value, { resolveHost = lookup, transport = pinnedRequest } = {}) {
+export async function readPublicPage(value, { resolveHost = lookup, transport = pinnedRequest, scope, signal: cancellation, robots = false, allowURL } = {}) {
+  cancellation?.throwIfAborted();
   let url = readerURL(value);
-  const signal = AbortSignal.timeout(8000);
+  const deadline = AbortSignal.timeout(8000);
+  const signal = cancellation ? AbortSignal.any([deadline, cancellation]) : deadline;
+  const visited = new Set();
   let abort;
   const timeout = new Promise((_, reject) => {
     abort = () => reject(new Error(PAGE_UNAVAILABLE));
@@ -66,17 +69,22 @@ export async function readPublicPage(value, { resolveHost = lookup, transport = 
   try {
     return await Promise.race([timeout, (async () => {
       for (let hop = 0; hop <= 3; hop++) {
+        if ((scope && url.origin !== scope) || (allowURL && !allowURL(url.href))) throw new Error(PAGE_UNAVAILABLE);
+        signal.throwIfAborted();
+        if (visited.has(url.href)) throw new Error(PAGE_UNAVAILABLE);
+        visited.add(url.href);
         const records = await resolveHost(url.hostname, { all: true, family: 4, verbatim: true });
         if (!records.length || records.some(record => !publicIPv4(record.address))) throw new Error(PAGE_UNAVAILABLE);
         signal.throwIfAborted();
         const response = await transport(url, records[0].address, signal);
+        if (robots && [404, 410].includes(response.statusCode)) { response.destroy(); return { text: '' }; }
         if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
           response.destroy();
           if (!response.headers.location || hop === 3) throw new Error(PAGE_UNAVAILABLE);
           url = readerURL(new URL(response.headers.location, url).href);
           continue;
         }
-        if (response.statusCode !== 200 || !/^text\/html(?:\s*;|$)/i.test(response.headers['content-type'] || '') ||
+        if (response.statusCode !== 200 || !(robots ? /^text\/plain(?:\s*;|$)/i : /^text\/html(?:\s*;|$)/i).test(response.headers['content-type'] || '') ||
             !['', 'identity'].includes(response.headers['content-encoding'] || '') ||
             Number(response.headers['content-length']) > 400000) {
           response.destroy();
@@ -89,9 +97,11 @@ export async function readPublicPage(value, { resolveHost = lookup, transport = 
           if (size > 400000) { response.destroy(); throw new Error(PAGE_UNAVAILABLE); }
           chunks.push(chunk);
         }
-        const text = readableText(Buffer.concat(chunks).toString('utf8'));
+        const html = Buffer.concat(chunks).toString('utf8');
+        if (robots) return { text: html };
+        const text = readableText(html);
         if (!text) throw new Error(PAGE_UNAVAILABLE);
-        return { url: url.href, text };
+        return { url: url.href, text, ...(scope ? { html } : {}) };
       }
       throw new Error(PAGE_UNAVAILABLE);
     })()]);

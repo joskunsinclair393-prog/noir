@@ -873,6 +873,9 @@
   }
   import('./browser.js').then(({ createBrowserWorkspace }) => {
     browserWorkspace = createBrowserWorkspace({
+      explore: (url, question) => api('/api/browser/explore', { method: 'POST', body: JSON.stringify({ url, question, consent: true }) }),
+      explorationStatus: id => api('/api/browser/explore?id=' + encodeURIComponent(id)),
+      cancelExploration: id => api('/api/browser/explore?id=' + encodeURIComponent(id), { method: 'DELETE' }),
       readPage: url => api('/api/browser/read', { method: 'POST', body: JSON.stringify({ url, consent: true }) }),
       clearContext: id => api('/api/browser/context', { method: 'DELETE', body: JSON.stringify({ id }) }),
       async send(chatId, message, pageContextId) {

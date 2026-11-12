@@ -507,3 +507,40 @@ test('public page context requires consent, stays owner-scoped, and is not store
   await call('/api/browser/context', 'alice', { id }, 'DELETE');
   assert.equal((await call('/api/chat', 'alice', { message: 'Summarize', pageContextId: id })).status, 404);
 });
+
+test('exploration progress and grounded sources are accessible only to the owner', async () => {
+  const server = createNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: true, supabaseUrl: 'https://auth.example.test', supabaseAnonKey: 'test', creditsEnabled: false },
+    fetchImpl: async (_url, options) => new Response(JSON.stringify({ id: options.headers.authorization, email: 'user@example.test' })),
+    explorationReader: async (url, options) => options.robots ? { text: '' } : ({
+      url, text: url.endsWith('/events') ? 'The meeting is on Tuesday.' : 'Public homepage',
+      html: url.endsWith('/events') ? '<title>Events</title>' : '<title>Home</title><a href="/events">Events</a>',
+    }),
+    generate: async ({ messages, instructions }) => {
+      assert.match(messages.at(-1).text, /The meeting is on Tuesday/);
+      assert.match(instructions, /does not contain the answer/);
+      return { text: 'The meeting is on Tuesday. The time is not listed.', usage: { inputTokens: 20, outputTokens: 10 } };
+    },
+  });
+  const base = await listen(server);
+  const call = (path, who, method = 'GET', body) => fetch(base + path, {
+    method, headers: { authorization: 'Bearer ' + who, origin: base, 'content-type': 'application/json' },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const start = await call('/api/browser/explore', 'alice', 'POST', { url: 'https://example.com/', question: 'Find events', consent: true });
+  assert.equal(start.status, 202);
+  const { id } = await start.json();
+  const job = '/api/browser/explore?id=' + id;
+  assert.equal((await call(job, 'bob')).status, 404);
+  assert.equal((await call(job, 'bob', 'DELETE')).status, 404);
+  const progress = await (await call(job, 'alice')).json();
+  assert.equal(progress.status, 'complete');
+  assert.equal(progress.progress.length, 2);
+  assert.equal(progress.context.sources[1].title, 'Events');
+  const response = await call('/api/chat', 'alice', 'POST', { message: 'When is the meeting?', pageContextId: id });
+  assert.equal(response.status, 200);
+  assert.match((await response.json()).chat.messages.at(-1).text, /https:\/\/example\.com\/events/);
+  assert.equal((await call(job, 'alice', 'DELETE')).status, 200);
+  assert.equal((await call(job, 'alice')).status, 404);
+});

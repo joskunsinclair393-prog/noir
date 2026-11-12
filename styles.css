@@ -757,3 +757,7 @@ body.light-theme :is(.browser-view,.view-switch) {
 #browserReadStatus,#browserPageSource { width:100%; margin:0; font-size:12px; overflow-wrap:anywhere; }
 #browserReadStatus:empty { display:none; }
 #browserPageSource { color:var(--noir-text); }
+#browserExploreStatus,#browserExploreProgress { width:100%; margin:0; font-size:12px; }
+#browserExploreStatus:empty { display:none; }
+#browserExploreProgress { max-height:100px; overflow:auto; padding-inline-start:20px; }
+.browser-messages article a { display:block; color:var(--noir-text); font-size:12px; overflow-wrap:anywhere; margin-top:5px; }
