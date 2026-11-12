@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "type": "module",
-  "description": "A secure, multi-provider AI chat app with server-side usage and optional credits.",
+  "description": "NOIR AI browser assistant",
   "engines": {
     "node": ">=20"
   },

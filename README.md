@@ -2,6 +2,14 @@
 
 NOIR is an open-source chat app with a Node.js backend. It can use Google Gemini, OpenAI, or Groq, supports required account sign-in for a public deployment, keeps chats separated by account, and keeps provider keys out of browser code.
 
+## Product direction
+
+NOIR is an AI browser assistant. The current release provides chat and its existing tools. Browser features will be added in separate steps.
+
+The web interface lives in `index.html`, `styles.css`, and `script.js`. `server.js` owns the authenticated API, chat history, provider adapters, usage limits, and billing. Future browser features should have a separate client module and dedicated, permission-checked server routes. Keep any webpage viewer and its storage isolated from the Assistant and its credentials. A future desktop client should use the authenticated API rather than moving provider keys into the client.
+
+Legacy website projects remain in their existing account records. The Assistant API omits those project fields, and this release does not run a data migration.
+
 ## Requirements
 
 - Node.js 20 or newer

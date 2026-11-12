@@ -165,22 +165,6 @@
     });
     let response = await request();
     if (response.status === 401 && path !== '/api/auth-config' && await refreshAuthSession()) response = await request();
-    if (response.headers.get('content-type')?.includes('application/x-ndjson') && options.onProgress) {
-      let buffer = '';
-      for await (const chunk of response.body.pipeThrough(new TextDecoderStream())) {
-        buffer += chunk;
-        const lines = buffer.split('\n');
-        buffer = lines.pop();
-        for (const line of lines) {
-          if (!line) continue;
-          const event = JSON.parse(line);
-          if (event.stage) options.onProgress(event.stage);
-          if (event.result) return event.result;
-          if (event.failure) throw Object.assign(new Error(event.failure.error), event.failure);
-        }
-      }
-      throw new Error('The connection closed before NOIR confirmed the project was saved.');
-    }
     let data = {};
     try { data = await response.json(); } catch {}
     if (!response.ok) throw Object.assign(new Error(data.error || `Request failed (${response.status})`), { status: response.status, code: data.code, details: data.details });
@@ -582,211 +566,12 @@
     return row;
   }
 
-  let builderProject = null;
-  let savingProject = false;
-  const builderFrame = $('builderFrame');
-  const builderSource = $('builderSource');
-
-  let activeProjectFile = 'index.html';
-
-  function projectFiles() {
-    return builderProject ? { 'index.html': builderProject.html, ...builderProject.files } : {};
-  }
-
-  function refreshBuilderPreview() {
-    const files = projectFiles();
-    const html = files['index.html'] || '';
-    builderFrame.contentWindow?.postMessage({ type: 'noir-preview', html, files, projectId: activeChatId }, '*');
-  }
-
-  function syncProjectFiles() {
-    const files = projectFiles();
-    const names = Object.keys(files);
-    if (!names.includes(activeProjectFile)) activeProjectFile = 'index.html';
-    $('builderFile').replaceChildren(...names.map(name => new Option(name, name)));
-    $('builderFile').value = activeProjectFile;
-    builderSource.value = files[activeProjectFile] || '';
-  }
-
-  function updateEditor() {
-    const highlight = $('builderHighlight');
-    const value = builderSource.value;
-    const parts = value.split(/(<!--[^]*?-->|<\/?[a-z][\w:-]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(?:const|let|function|return|class|if|else|true|false)\b)/gi);
-    highlight.replaceChildren(...parts.map((part, index) => {
-      if (index % 2 === 0) return document.createTextNode(part);
-      const token = document.createElement('span');
-      token.className = part.startsWith('<!--') ? 'syntax-comment' : /^["']/.test(part) ? 'syntax-string' : 'syntax-keyword';
-      token.textContent = part;
-      return token;
-    }), document.createTextNode('\n'));
-    highlight.scrollTop = builderSource.scrollTop;
-    highlight.scrollLeft = builderSource.scrollLeft;
-    const dirty = Boolean(builderProject && value !== projectFiles()[activeProjectFile]);
-    $('builderSaveState').textContent = savingProject ? 'Saving…' : dirty ? 'Unsaved changes' : builderProject ? 'Saved' : 'No file yet';
-    $('builderSave').disabled = !dirty || savingProject || sending;
-  }
-
-  function showBuilder(project, status) {
-    const changed = project !== builderProject;
-    builderProject = project || null;
-    $('builderPanel').hidden = !project && !status;
-    $('builderStatus').textContent = status || 'Project saved';
-    if (changed || !project) syncProjectFiles();
-    builderSource.disabled = !project;
-    $('builderDownload').disabled = !project;
-    updateEditor();
-    if (project || status) {
-      if (!builderFrame.hasAttribute('src')) builderFrame.src = '/project-preview';
-      else refreshBuilderPreview();
-    } else {
-      builderFrame.removeAttribute('src');
-    }
-  }
-
-  function showBuilderTab(source) {
-    $('builderCanvas').hidden = source;
-    $('builderEditor').hidden = !source;
-    $('builderPreview').setAttribute('aria-pressed', String(!source));
-    $('builderCode').setAttribute('aria-pressed', String(source));
-  }
-
-  const divider = $('builderDivider');
-  function setChatWidth(percent) {
-    const width = Math.round(Math.max(24, Math.min(60, percent)));
-    $('builderLayout').style.setProperty('--chat-width', width + '%');
-    divider.setAttribute('aria-valuenow', String(width));
-  }
-  divider.addEventListener('pointerdown', event => divider.setPointerCapture(event.pointerId));
-  divider.addEventListener('pointermove', event => {
-    if (!divider.hasPointerCapture(event.pointerId)) return;
-    const bounds = $('builderLayout').getBoundingClientRect();
-    setChatWidth((event.clientX - bounds.left) / bounds.width * 100);
-  });
-  divider.addEventListener('keydown', event => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    const current = Number(divider.getAttribute('aria-valuenow'));
-    setChatWidth(event.key === 'Home' ? 24 : event.key === 'End' ? 60 : current + (event.key === 'ArrowLeft' ? -3 : 3));
-  });
-
-  $('builderDevice').addEventListener('change', event => { $('builderCanvas').dataset.device = event.target.value; });
-  builderSource.addEventListener('scroll', () => {
-    $('builderHighlight').scrollTop = builderSource.scrollTop;
-    $('builderHighlight').scrollLeft = builderSource.scrollLeft;
-  });
-  builderSource.addEventListener('input', updateEditor);
-  $('builderSave').addEventListener('click', async () => {
-    if (!builderProject || savingProject || sending) return;
-    savingProject = true;
-    const files = { [activeProjectFile]: builderSource.value };
-    updateEditor();
-    try {
-      const { project } = await api('/api/chats/' + encodeURIComponent(activeChatId) + '/project', {
-        method: 'PUT', body: JSON.stringify({ files, revision: builderProject.revision || 0 }),
-      });
-      builderProject = project;
-      $('builderStatus').textContent = 'Project saved';
-      refreshBuilderPreview();
-    } catch (error) {
-      $('builderStatus').textContent = error.message;
-    } finally {
-      savingProject = false;
-      updateEditor();
-    }
-  });
-
-  builderFrame.addEventListener('load', refreshBuilderPreview);
-  $('builderPreview').addEventListener('click', () => showBuilderTab(false));
-  $('builderCode').addEventListener('click', () => showBuilderTab(true));
-  $('builderFile').addEventListener('change', event => {
-    if (!canLeaveProject()) {
-      event.target.value = activeProjectFile;
-      return;
-    }
-    activeProjectFile = event.target.value;
-    syncProjectFiles();
-    updateEditor();
-    builderSource.focus();
-  });
-  $('builderRefresh').addEventListener('click', refreshBuilderPreview);
-  $('builderFullscreen').addEventListener('click', async () => {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await $('builderPanel').requestFullscreen();
-    } catch { $('builderStatus').textContent = 'Fullscreen is unavailable in this browser.'; }
-  });
-  function websiteZip(files) {
-    const encoder = new TextEncoder();
-    const entries = [];
-    const directory = [];
-    let offset = 0;
-    let directorySize = 0;
-    for (const [filename, content] of Object.entries(files)) {
-      const name = encoder.encode(filename);
-      const bytes = encoder.encode(content);
-      let crc = 0xffffffff;
-      for (const byte of bytes) {
-        crc ^= byte;
-        for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
-      }
-      crc ^= 0xffffffff;
-      const local = new DataView(new ArrayBuffer(30 + name.length));
-      const central = new DataView(new ArrayBuffer(46 + name.length));
-      local.setUint32(0, 0x04034b50, true);
-      local.setUint16(4, 20, true);
-      local.setUint16(12, 33, true);
-      local.setUint32(14, crc, true);
-      local.setUint32(18, bytes.length, true);
-      local.setUint32(22, bytes.length, true);
-      local.setUint16(26, name.length, true);
-      new Uint8Array(local.buffer).set(name, 30);
-      central.setUint32(0, 0x02014b50, true);
-      central.setUint16(4, 20, true);
-      central.setUint16(6, 20, true);
-      central.setUint16(14, 33, true);
-      central.setUint32(16, crc, true);
-      central.setUint32(20, bytes.length, true);
-      central.setUint32(24, bytes.length, true);
-      central.setUint16(28, name.length, true);
-      new Uint8Array(central.buffer).set(name, 46);
-      central.setUint32(42, offset, true);
-      entries.push(local.buffer, bytes);
-      directory.push(central.buffer);
-      offset += local.byteLength + bytes.length;
-      directorySize += central.byteLength;
-    }
-    const end = new DataView(new ArrayBuffer(22));
-    end.setUint32(0, 0x06054b50, true);
-    end.setUint16(8, directory.length, true);
-    end.setUint16(10, directory.length, true);
-    end.setUint32(12, directorySize, true);
-    end.setUint32(16, offset, true);
-    return new Blob([...entries, ...directory, end.buffer], { type: 'application/zip' });
-  }
-
-  $('builderDownload').addEventListener('click', () => {
-    if (!builderProject) return;
-    const url = URL.createObjectURL(websiteZip(projectFiles()));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'noir-website.zip';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
-
-  function canLeaveProject() {
-    return !savingProject && (!builderProject || builderSource.value === projectFiles()[activeProjectFile] ||
-      window.confirm('Discard unsaved edits to this file?'));
-  }
-
   async function openChat(id) {
-    if (sending || id === activeChatId || !canLeaveProject()) return;
+    if (sending || id === activeChatId) return;
     try {
       const { chat } = await api(`/api/chats/${encodeURIComponent(id)}`);
       editingLastMessage = false;
       activeChatId = chat.id;
-      showBuilder(chat.project);
-      if (chat.project) document.querySelector('input[name="noir-mode"][value="code"]').checked = true;
       rememberActiveChat(activeChatId);
       messages.replaceChildren();
       chat.messages.forEach(item => addMessage(item.role, item.text, item.role === 'user' ? item.usage : null, '', false, item.attachments?.map(file => file.name) || []));
@@ -801,8 +586,7 @@
   }
 
   function startNewChat(focus = true) {
-    if (sending || (focus && !canLeaveProject())) return;
-    showBuilder(null);
+    if (sending) return;
     editingLastMessage = false;
     activeChatId = null;
     rememberActiveChat(null);
@@ -958,20 +742,7 @@
     if (!value) {
       return;
     }
-    const build = !options.regenerate && !options.edit && !pickedFiles.length &&
-      (Boolean(builderProject && document.querySelector('input[name="noir-mode"][value="code"]').checked) || /^(?:please\s+)?(?:build|create|make|generate|design)\b[^.!?]{0,160}\b(?:website|web app|landing page|portfolio site|webpage)\b/i.test(value));
-    if (build && (savingProject || (builderProject && builderSource.value !== projectFiles()[activeProjectFile]))) {
-      $('builderStatus').textContent = 'Save your file before asking NOIR to revise it.';
-      return;
-    }
-    if (build) {
-      showBuilderTab(false);
-      document.querySelector('input[name="noir-mode"][value="code"]').checked = true;
-      showBuilder(builderProject, builderProject ? 'Requesting a revision from the AI model…' : 'Requesting a website from the AI model…');
-    }
     sending = true;
-    updateEditor();
-    if (build) builderSource.disabled = true;
     $('send').disabled = true;
     input.disabled = true;
     let failed = false;
@@ -988,14 +759,9 @@
       const pluginNames = [...selectedIntegrations.values()].filter(item => item.type === 'Plugin').map(item => item.name);
       const result = await api('/api/chat', {
         method: 'POST',
-        onProgress: stage => {
-          const labels = { generating: 'AI model is generating the website…', validating: 'Validating the generated HTML…', saving: 'Saving the project to this conversation…' };
-          if (labels[stage]) $('builderStatus').textContent = labels[stage];
-        },
-        body: JSON.stringify({ chatId: activeChatId, message: value, build, progress: build, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
+        body: JSON.stringify({ chatId: activeChatId, message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
       });
       activeChatId = result.chat.id;
-      if (build) showBuilder(result.chat.project);
       rememberActiveChat(activeChatId);
       typingRow.remove();
       if (options.regenerate || options.edit) {
@@ -1010,7 +776,6 @@
       editingLastMessage = false;
     } catch (error) {
       failed = true;
-      if (build) showBuilder(builderProject, error.message);
       userRow?.remove();
       typingRow.remove();
       if (error.code === 'daily_token_limit') showDailyLimit(error.details);
@@ -1019,11 +784,9 @@
       if (error.code === 'insufficient_credits') showNotice(error.message);
     } finally {
       sending = false;
-      builderSource.disabled = !builderProject;
-      updateEditor();
       $('send').disabled = false;
       input.disabled = false;
-      if (failed && (options.edit || build)) input.value = value;
+      if (failed && options.edit) input.value = value;
       else input.value = '';
       resize();
       if (!options.regenerate && $('limitBackdrop').hidden) input.focus({ preventScroll: true });

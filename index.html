@@ -4,21 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#080808">
-<meta name="description" content="Meet NOIR AI, your intelligent assistant for questions, brainstorming, writing, learning, coding, and project planning. Sign in to chat and revisit saved conversations.">
+<meta name="description" content="NOIR is an AI browser assistant for asking questions, understanding information, and exploring ideas. Sign in to chat and revisit saved conversations.">
 <meta name="robots" content="index,follow,max-image-preview:large">
 <link rel="canonical" href="https://noir-buhz.onrender.com/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="NOIR AI">
-<meta property="og:title" content="NOIR AI — Your Intelligent AI Assistant">
-<meta property="og:description" content="Ask questions, explore ideas, write, learn, code, and plan with NOIR AI. Sign in to chat and revisit saved conversations.">
+<meta property="og:title" content="NOIR — AI Browser Assistant">
+<meta property="og:description" content="Ask questions, understand information, and explore ideas with NOIR. Sign in to chat and revisit saved conversations.">
 <meta property="og:url" content="https://noir-buhz.onrender.com/">
 <meta property="og:image" content="https://noir-buhz.onrender.com/logo.svg.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="NOIR AI — Your Intelligent AI Assistant">
-<meta name="twitter:description" content="Ask questions, explore ideas, write, learn, code, and plan with NOIR AI. Sign in to chat and revisit saved conversations.">
+<meta name="twitter:title" content="NOIR — AI Browser Assistant">
+<meta name="twitter:description" content="Ask questions, understand information, and explore ideas with NOIR. Sign in to chat and revisit saved conversations.">
 <meta name="twitter:image" content="https://noir-buhz.onrender.com/logo.svg.png">
 <!-- GOOGLE_SITE_VERIFICATION -->
-<title>NOIR AI — Your Intelligent AI Assistant</title>
+<title>NOIR — AI Browser Assistant</title>
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -60,10 +60,6 @@
   <main class="main">
     <header class="topbar">
       <div class="topbar-leading"><button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Hide sidebar" title="Hide sidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button><button type="button" class="model home-button" id="homeButtonTop" aria-label="Go to the NOIR home page"><img class="logo" src="logo.svg" alt="">NOIR</button></div>
-      <fieldset class="mode-switch" aria-label="NOIR mode">
-        <label><input type="radio" name="noir-mode" value="assistant" checked><span>Assistant</span></label>
-        <label><input type="radio" name="noir-mode" value="code"><span>Code</span></label>
-      </fieldset>
       <div class="topbar-actions">
         <div class="profile-wrap" id="profileWrap" hidden>
           <button type="button" class="profile-trigger" id="profileTrigger" aria-label="Open profile" aria-haspopup="menu" aria-expanded="false">
@@ -85,29 +81,17 @@
       </div>
     </header>
     <div class="app-notice" id="appNotice" role="status" hidden></div>
-    <div class="builder-layout" id="builderLayout">
-    <div class="builder-chat">
     <section class="chat">
       <div class="welcome" id="welcome">
         <img class="welcome-logo" src="logo.svg" alt="">
-        <div class="assistant-intro">
         <div class="eyebrow">A space for anything</div>
         <h1>What’s on your mind?</h1>
-        <p>Ask a question, explore an idea, or make something remarkable.</p>
-        </div>
-        <div class="code-intro">
-          <h1>NOIR Code</h1>
-          <p>Ask about your code, troubleshoot an error, or plan your next build. Build a website with a live preview.</p>
-        </div>
+        <p>Ask a question, make sense of information, or explore an idea.</p>
         <div class="suggestions">
           <button class="suggestion" data-prompt="Help me come up with a creative project idea."><b>✳ &nbsp; Brainstorm</b>Find a fresh idea to explore</button>
           <button class="suggestion" data-prompt="Explain a difficult topic in simple terms."><b>◈ &nbsp; Learn something</b>Make a tricky topic easier</button>
           <button class="suggestion" data-prompt="Help me write a clear, engaging message."><b>✎ &nbsp; Write</b>Turn a rough idea into words</button>
           <button class="suggestion" data-prompt="Help me plan a project step by step."><b>▤ &nbsp; Make a plan</b>Break a goal into steps</button>
-          <button class="suggestion code-starter" data-prompt="Help me debug a programming error. Ask me for the error message and the relevant code."><b>Debug an error</b>Work through a stack trace</button>
-          <button class="suggestion code-starter" data-prompt="Help me plan a software project. Ask me what I want to build, then suggest a structure and first steps."><b>Plan a build</b>Start a software project</button>
-          <button class="suggestion code-starter" data-prompt="Help me understand and refactor a function. Ask me to share the function and what it should do."><b>Review code</b>Understand and improve a function</button>
-          <button class="suggestion code-starter" data-prompt="Help me write tests for my code. Ask for the code and the test framework I use."><b>Write tests</b>Cover behavior and edge cases</button>
         </div>
       </div>
       <div class="messages" id="messages" aria-live="polite"></div>
@@ -136,33 +120,6 @@
         </div>
       </div>
       <div class="disclaimer">AI can make mistakes. Check important information.</div>
-    </div>
-    </div>
-    <div id="builderDivider" class="builder-divider" role="separator" aria-label="Resize chat and preview" aria-orientation="vertical" aria-valuemin="24" aria-valuemax="60" aria-valuenow="36" tabindex="0"></div>
-    <section class="builder-panel" id="builderPanel" aria-label="Website workspace" hidden>
-      <div class="builder-toolbar">
-        <button type="button" id="builderPreview" aria-pressed="true" title="Show the live website">▣ Preview</button>
-        <button type="button" id="builderCode" aria-pressed="false" title="Open project files and edit source">⌘ Code</button>
-        <button type="button" id="builderRefresh" title="Reload the website preview">↻ Refresh</button>
-        <button type="button" id="builderFullscreen" title="Toggle fullscreen">⛶ Expand</button>
-        <button type="button" id="builderDownload" disabled title="Export the website project">↓ Download ZIP</button>
-        <label class="builder-device"><span>Viewport</span><select id="builderDevice" aria-label="Preview viewport"><option value="desktop">Desktop</option><option value="tablet">Tablet · 768 px</option><option value="mobile">Mobile · 390 px</option></select></label>
-      </div>
-      <p id="builderStatus" role="status">Describe the website you want to build.</p>
-      <div class="builder-canvas" id="builderCanvas">
-        <iframe id="builderFrame" title="Website preview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
-      </div>
-      <div class="builder-editor" id="builderEditor" hidden>
-        <nav aria-label="Project files"><strong>Project files</strong><select id="builderFile" aria-label="Project file"><option>index.html</option></select></nav>
-        <div class="builder-edit-pane">
-          <div class="builder-edit-header"><span id="builderSaveState" role="status">Saved</span><button type="button" id="builderSave" disabled>Save file</button></div>
-          <div class="builder-edit-stack">
-            <pre id="builderHighlight" aria-hidden="true"></pre>
-            <textarea id="builderSource" aria-label="Project file source" spellcheck="false" maxlength="48000" wrap="off"></textarea>
-          </div>
-        </div>
-      </div>
-    </section>
     </div>
   </main>
 </div>
