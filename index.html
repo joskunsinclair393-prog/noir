@@ -86,6 +86,7 @@
     </header>
     <div class="app-notice" id="appNotice" role="status" hidden></div>
     <div class="builder-layout" id="builderLayout">
+    <div class="builder-chat">
     <section class="chat">
       <div class="welcome" id="welcome">
         <img class="welcome-logo" src="logo.svg" alt="">
@@ -111,19 +112,6 @@
       </div>
       <div class="messages" id="messages" aria-live="polite"></div>
     </section>
-    <section class="builder-panel" id="builderPanel" aria-label="Website workspace" hidden>
-      <div class="builder-toolbar">
-        <button type="button" id="builderPreview" aria-pressed="true">Preview</button>
-        <button type="button" id="builderCode" aria-pressed="false">index.html</button>
-        <button type="button" id="builderRefresh">Refresh</button>
-        <button type="button" id="builderFullscreen">Expand</button>
-        <button type="button" id="builderDownload" disabled>Download ZIP</button>
-      </div>
-      <p id="builderStatus" role="status">Describe the website you want to build.</p>
-      <iframe id="builderFrame" title="Website preview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
-      <textarea id="builderSource" aria-label="index.html source" spellcheck="false" readonly hidden></textarea>
-    </section>
-    </div>
     <div class="composer-wrap">
       <div class="composer">
         <textarea id="prompt" rows="1" placeholder="Message NOIR..." aria-label="Message NOIR"></textarea>
@@ -148,6 +136,33 @@
         </div>
       </div>
       <div class="disclaimer">AI can make mistakes. Check important information.</div>
+    </div>
+    </div>
+    <div id="builderDivider" class="builder-divider" role="separator" aria-label="Resize chat and preview" aria-orientation="vertical" aria-valuemin="24" aria-valuemax="60" aria-valuenow="36" tabindex="0"></div>
+    <section class="builder-panel" id="builderPanel" aria-label="Website workspace" hidden>
+      <div class="builder-toolbar">
+        <button type="button" id="builderPreview" aria-pressed="true" title="Show the live website">▣ Preview</button>
+        <button type="button" id="builderCode" aria-pressed="false" title="Open project files and edit source">⌘ Code</button>
+        <button type="button" id="builderRefresh" title="Reload the website preview">↻ Refresh</button>
+        <button type="button" id="builderFullscreen" title="Toggle fullscreen">⛶ Expand</button>
+        <button type="button" id="builderDownload" disabled title="Export the website project">↓ Download ZIP</button>
+        <label class="builder-device"><span>Viewport</span><select id="builderDevice" aria-label="Preview viewport"><option value="desktop">Desktop</option><option value="tablet">Tablet · 768 px</option><option value="mobile">Mobile · 390 px</option></select></label>
+      </div>
+      <p id="builderStatus" role="status">Describe the website you want to build.</p>
+      <div class="builder-canvas" id="builderCanvas">
+        <iframe id="builderFrame" title="Website preview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+      </div>
+      <div class="builder-editor" id="builderEditor" hidden>
+        <nav aria-label="Project files"><strong>Project files</strong><button type="button" id="builderFile" aria-current="true">index.html</button></nav>
+        <div class="builder-edit-pane">
+          <div class="builder-edit-header"><span id="builderSaveState" role="status">Saved</span><button type="button" id="builderSave" disabled>Save file</button></div>
+          <div class="builder-edit-stack">
+            <pre id="builderHighlight" aria-hidden="true"></pre>
+            <textarea id="builderSource" aria-label="index.html source" spellcheck="false" maxlength="48000" wrap="off"></textarea>
+          </div>
+        </div>
+      </div>
+    </section>
     </div>
   </main>
 </div>

@@ -250,6 +250,11 @@ function currentDateForTimeZone(timeZone) {
   return `${values.weekday}, ${values.year}-${values.month}-${values.day}`;
 }
 
+function validProjectHtml(html) {
+  return typeof html === 'string' && html.length <= 48000 &&
+    /^<!doctype html>/i.test(html.trim()) && /<\/html>\s*$/i.test(html);
+}
+
 function publicError(error) {
   if (error instanceof ProviderError) {
     if (error.status === 429) return { status: 429, message: 'The AI provider rate limit was reached. Please try again shortly.', code: 'provider_rate_limit' };
@@ -752,7 +757,7 @@ export function createNoirServer(options = {}) {
     const args = {
       model: config.model,
       messages: messages.map(message => ({ ...message, plugins: undefined })),
-      instructions: [baseInstructions, ...modeInstructions, ...(building ? ['Build or revise a static website. Return only valid JSON with keys html and summary. html must contain a complete standalone HTML document with inline CSS and JavaScript. Preserve unrelated behavior. Use no remote dependencies or server endpoints. summary is a short plain-language description.'] : [])].join('\n\n'),
+      instructions: [baseInstructions, ...modeInstructions, ...(building ? ['Build or revise a static website. Return only valid JSON with keys html and summary. html must contain a complete standalone HTML document with inline CSS and JavaScript. Preserve unrelated behavior. Use no remote dependencies or server endpoints. Create a coherent visual hierarchy with strong headlines, deliberate typography, generous spacing, and a cohesive palette. Build complete sections with realistic copy and responsive layouts. Use cards where they clarify content, SVG or CSS for relevant visuals, and subtle motion that respects prefers-reduced-motion. Include viewport metadata and make navigation and controls usable on narrow screens. summary is a short plain-language description.'] : [])].join('\n\n'),
       maxOutputTokens: outputTokenLimit,
       reasoningEffort: config.reasoningEffort,
       fetchImpl: options.fetchImpl || fetch,
@@ -865,6 +870,29 @@ export function createNoirServer(options = {}) {
           if (typeof portal.url !== 'string' || !portal.url.startsWith('https://billing.stripe.com/')) throw Object.assign(new Error('Stripe did not return a secure subscription-management link.'), { status: 502, code: 'billing_portal_failed' });
           return sendJson(response, 200, { url: portal.url });
         }
+        const projectRoute = url.pathname.match(/^\/api\/chats\/([a-f0-9-]+)\/project$/i);
+        if (request.method === 'PUT' && projectRoute) {
+          const { html, revision } = await readJsonBody(request, 300000);
+          if (!validProjectHtml(html)) return sendJson(response, 400, { error: 'Save a complete HTML document under 48,000 characters.' });
+          const { data, key } = await getSession(request, response);
+          const result = await withSessionLock(key, async () => {
+            const chat = data.chats.find(item => item.id === projectRoute[1]);
+            if (!chat?.project) return { status: 404, error: 'Project not found.' };
+            const current = chat.project.revision || 0;
+            if (revision !== current) return { status: 409, error: 'The saved project changed. Copy your edits before reopening it.' };
+            const previous = chat.project;
+            chat.project = { html, revision: current + 1 };
+            try {
+              if (config.authRequired) await persistAccountData(accountUser.id, data);
+              else saveStore();
+            } catch (error) {
+              chat.project = previous;
+              throw error;
+            }
+            return { status: 200, project: chat.project };
+          });
+          return sendJson(response, result.status, result.project ? { project: result.project } : { error: result.error });
+        }
         if (request.method === 'GET' && url.pathname.startsWith('/api/chats/')) {
           const { data } = await getSession(request, response);
           const chatId = decodeURIComponent(url.pathname.slice('/api/chats/'.length));
@@ -917,6 +945,12 @@ export function createNoirServer(options = {}) {
           const isPlus = subscriptionIsActive(subscription);
           const unlimitedAccess = hasUnlimitedAccess(user);
           checkRateLimit(key, unlimitedAccess || isPlus);
+          const streamProgress = body.build === true && body.progress === true;
+          function progress(stage) {
+            if (!streamProgress) return;
+            if (!response.headersSent) response.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store, no-transform' });
+            response.write(JSON.stringify({ stage }) + '\n');
+          }
           const result = await withSessionLock(key, async () => {
             if (!providerInfo().ready && !options.generate) {
               if (!config.allowRequests) await generate([]);
@@ -994,14 +1028,16 @@ export function createNoirServer(options = {}) {
                 : '\n\nThe search provider returned no results. Tell the user that no results were found.';
               latest.text += searchContext;
             }
+            if (building) progress('generating');
             const generated = await generate(providerHistory, timeZone, outputBudget, building);
             if (building) {
+              progress('validating');
               let project;
               try { project = JSON.parse(generated.text); } catch {}
-              if (typeof project?.html !== 'string' || project.html.length > 48000 || !/^<!doctype html>/i.test(project.html.trim()) || !/<\/html>\s*$/i.test(project.html)) {
+              if (!validProjectHtml(project?.html)) {
                 throw Object.assign(new Error('The model did not return a complete website. Try a smaller request.'), { status: 400, code: 'invalid_project' });
               }
-              chat.project = { html: project.html };
+              chat.project = { html: project.html, revision: (chat.project?.revision || 0) + 1 };
               generated.text = typeof project.summary === 'string' ? project.summary.slice(0, 600) : 'Updated index.html and the live preview.';
             }
             if (sources.length) generated.text += `\n\nSources\n${sources.map((source, index) => `[${index + 1}] [${source.title}](${source.url})`).join('\n')}`;
@@ -1024,10 +1060,12 @@ export function createNoirServer(options = {}) {
             if (attachments.length) data.pluginUsage.fileAnalyses = (data.pluginUsage.fileAnalyses || 0) + 1;
             if (plugins.includes('Web Search')) data.pluginUsage.webSearches = (data.pluginUsage.webSearches || 0) + 1;
             if (config.creditsEnabled && !unlimitedAccess && !isPlus) data.credits -= config.creditsPerMessage;
+            if (building) progress('saving');
             if (config.authRequired) await persistAccountData(accountUser.id, data);
             else saveStore();
             return { chat, usage, session: sessionSummary(data, user, subscription) };
           });
+          if (response.headersSent) return response.end(JSON.stringify({ result }) + '\n');
           return sendJson(response, 200, result);
         }
         return sendJson(response, 404, { error: 'API route not found.' });
@@ -1051,6 +1089,7 @@ export function createNoirServer(options = {}) {
     } catch (error) {
       const issue = publicError(error);
       if (issue.status >= 500) console.error('[NOIR]', error.message);
+      if (response.headersSent) return response.end(JSON.stringify({ failure: { ...issue, error: issue.message } }) + '\n');
       return sendJson(response, issue.status, { error: issue.message, code: issue.code, ...(issue.details ? { details: issue.details } : {}) });
     }
   });

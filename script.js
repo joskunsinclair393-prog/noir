@@ -165,6 +165,22 @@
     });
     let response = await request();
     if (response.status === 401 && path !== '/api/auth-config' && await refreshAuthSession()) response = await request();
+    if (response.headers.get('content-type')?.includes('application/x-ndjson') && options.onProgress) {
+      let buffer = '';
+      for await (const chunk of response.body.pipeThrough(new TextDecoderStream())) {
+        buffer += chunk;
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line) continue;
+          const event = JSON.parse(line);
+          if (event.stage) options.onProgress(event.stage);
+          if (event.result) return event.result;
+          if (event.failure) throw Object.assign(new Error(event.failure.error), event.failure);
+        }
+      }
+      throw new Error('The connection closed before NOIR confirmed the project was saved.');
+    }
     let data = {};
     try { data = await response.json(); } catch {}
     if (!response.ok) throw Object.assign(new Error(data.error || `Request failed (${response.status})`), { status: response.status, code: data.code, details: data.details });
@@ -567,18 +583,41 @@
   }
 
   let builderProject = null;
+  let savingProject = false;
   const builderFrame = $('builderFrame');
+  const builderSource = $('builderSource');
 
-  function refreshBuilderPreview() {
-    builderFrame.contentWindow?.postMessage({ type: 'noir-preview', html: builderProject?.html || '' }, '*');
+  function refreshBuilderPreview(html = builderSource.value) {
+    builderFrame.contentWindow?.postMessage({ type: 'noir-preview', html }, '*');
+  }
+
+  function updateEditor() {
+    const highlight = $('builderHighlight');
+    const value = builderSource.value;
+    const parts = value.split(/(<!--[^]*?-->|<\/?[a-z][\w:-]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(?:const|let|function|return|class|if|else|true|false)\b)/gi);
+    highlight.replaceChildren(...parts.map((part, index) => {
+      if (index % 2 === 0) return document.createTextNode(part);
+      const token = document.createElement('span');
+      token.className = part.startsWith('<!--') ? 'syntax-comment' : /^["']/.test(part) ? 'syntax-string' : 'syntax-keyword';
+      token.textContent = part;
+      return token;
+    }), document.createTextNode('\n'));
+    highlight.scrollTop = builderSource.scrollTop;
+    highlight.scrollLeft = builderSource.scrollLeft;
+    const dirty = Boolean(builderProject && value !== builderProject.html);
+    $('builderSaveState').textContent = savingProject ? 'Saving…' : dirty ? 'Unsaved changes' : builderProject ? 'Saved' : 'No file yet';
+    $('builderSave').disabled = !dirty || savingProject || sending;
   }
 
   function showBuilder(project, status) {
+    const changed = project !== builderProject;
     builderProject = project || null;
     $('builderPanel').hidden = !project && !status;
-    $('builderStatus').textContent = status || 'Saved to this conversation';
-    $('builderSource').value = project?.html || '';
+    $('builderStatus').textContent = status || 'Project saved';
+    if (changed || !project) builderSource.value = project?.html || '';
+    builderSource.disabled = !project;
     $('builderDownload').disabled = !project;
+    updateEditor();
     if (project || status) {
       if (!builderFrame.hasAttribute('src')) builderFrame.src = '/project-preview';
       else refreshBuilderPreview();
@@ -588,16 +627,62 @@
   }
 
   function showBuilderTab(source) {
-    builderFrame.hidden = source;
-    $('builderSource').hidden = !source;
+    $('builderCanvas').hidden = source;
+    $('builderEditor').hidden = !source;
     $('builderPreview').setAttribute('aria-pressed', String(!source));
     $('builderCode').setAttribute('aria-pressed', String(source));
   }
 
-  builderFrame.addEventListener('load', refreshBuilderPreview);
+  const divider = $('builderDivider');
+  function setChatWidth(percent) {
+    const width = Math.round(Math.max(24, Math.min(60, percent)));
+    $('builderLayout').style.setProperty('--chat-width', width + '%');
+    divider.setAttribute('aria-valuenow', String(width));
+  }
+  divider.addEventListener('pointerdown', event => divider.setPointerCapture(event.pointerId));
+  divider.addEventListener('pointermove', event => {
+    if (!divider.hasPointerCapture(event.pointerId)) return;
+    const bounds = $('builderLayout').getBoundingClientRect();
+    setChatWidth((event.clientX - bounds.left) / bounds.width * 100);
+  });
+  divider.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const current = Number(divider.getAttribute('aria-valuenow'));
+    setChatWidth(event.key === 'Home' ? 24 : event.key === 'End' ? 60 : current + (event.key === 'ArrowLeft' ? -3 : 3));
+  });
+
+  $('builderDevice').addEventListener('change', event => { $('builderCanvas').dataset.device = event.target.value; });
+  builderSource.addEventListener('scroll', () => {
+    $('builderHighlight').scrollTop = builderSource.scrollTop;
+    $('builderHighlight').scrollLeft = builderSource.scrollLeft;
+  });
+  builderSource.addEventListener('input', updateEditor);
+  $('builderSave').addEventListener('click', async () => {
+    if (!builderProject || savingProject || sending) return;
+    savingProject = true;
+    const html = builderSource.value;
+    updateEditor();
+    try {
+      const { project } = await api('/api/chats/' + encodeURIComponent(activeChatId) + '/project', {
+        method: 'PUT', body: JSON.stringify({ html, revision: builderProject.revision || 0 }),
+      });
+      builderProject = project;
+      $('builderStatus').textContent = 'Project saved';
+      refreshBuilderPreview(project.html);
+    } catch (error) {
+      $('builderStatus').textContent = error.message;
+    } finally {
+      savingProject = false;
+      updateEditor();
+    }
+  });
+
+  builderFrame.addEventListener('load', () => refreshBuilderPreview(builderProject?.html || ''));
   $('builderPreview').addEventListener('click', () => showBuilderTab(false));
   $('builderCode').addEventListener('click', () => showBuilderTab(true));
-  $('builderRefresh').addEventListener('click', refreshBuilderPreview);
+  $('builderFile').addEventListener('click', () => builderSource.focus());
+  $('builderRefresh').addEventListener('click', () => refreshBuilderPreview(builderProject?.html || ''));
   $('builderFullscreen').addEventListener('click', async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
@@ -652,8 +737,13 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
 
+  function canLeaveProject() {
+    return !savingProject && (!builderProject || builderSource.value === builderProject.html ||
+      window.confirm('Discard unsaved edits to index.html?'));
+  }
+
   async function openChat(id) {
-    if (sending) return;
+    if (sending || id === activeChatId || !canLeaveProject()) return;
     try {
       const { chat } = await api(`/api/chats/${encodeURIComponent(id)}`);
       editingLastMessage = false;
@@ -674,7 +764,7 @@
   }
 
   function startNewChat(focus = true) {
-    if (sending) return;
+    if (sending || (focus && !canLeaveProject())) return;
     showBuilder(null);
     editingLastMessage = false;
     activeChatId = null;
@@ -833,11 +923,18 @@
     }
     const build = !options.regenerate && !options.edit && !pickedFiles.length &&
       (Boolean(builderProject && document.querySelector('input[name="noir-mode"][value="code"]').checked) || /^(?:please\s+)?(?:build|create|make|generate|design)\b[^.!?]{0,160}\b(?:website|web app|landing page|portfolio site|webpage)\b/i.test(value));
+    if (build && (savingProject || (builderProject && builderSource.value !== builderProject.html))) {
+      $('builderStatus').textContent = 'Save your file before asking NOIR to revise it.';
+      return;
+    }
     if (build) {
+      showBuilderTab(false);
       document.querySelector('input[name="noir-mode"][value="code"]').checked = true;
-      showBuilder(builderProject, builderProject ? 'Updating your website…' : 'Building your website…');
+      showBuilder(builderProject, builderProject ? 'Requesting a revision from the AI model…' : 'Requesting a website from the AI model…');
     }
     sending = true;
+    updateEditor();
+    if (build) builderSource.disabled = true;
     $('send').disabled = true;
     input.disabled = true;
     let failed = false;
@@ -854,7 +951,11 @@
       const pluginNames = [...selectedIntegrations.values()].filter(item => item.type === 'Plugin').map(item => item.name);
       const result = await api('/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ chatId: activeChatId, message: value, build, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
+        onProgress: stage => {
+          const labels = { generating: 'AI model is generating the website…', validating: 'Validating the generated HTML…', saving: 'Saving the project to this conversation…' };
+          if (labels[stage]) $('builderStatus').textContent = labels[stage];
+        },
+        body: JSON.stringify({ chatId: activeChatId, message: value, build, progress: build, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
       });
       activeChatId = result.chat.id;
       if (build) showBuilder(result.chat.project);
@@ -881,6 +982,8 @@
       if (error.code === 'insufficient_credits') showNotice(error.message);
     } finally {
       sending = false;
+      builderSource.disabled = !builderProject;
+      updateEditor();
       $('send').disabled = false;
       input.disabled = false;
       if (failed && (options.edit || build)) input.value = value;
