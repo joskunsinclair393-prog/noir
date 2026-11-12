@@ -750,3 +750,10 @@ body.light-theme :is(.browser-view,.view-switch) {
   .browser-ai { width:100%; min-height:250px; max-height:390px; }
   .view-switch button { padding-inline:7px; font-size:12px; }
 }
+
+.browser-page-controls { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.browser-page-controls button { border:1px solid var(--noir-border); background:var(--noir-panel-raised); color:var(--noir-text); border-radius:7px; padding:6px 8px; }
+.browser-page-controls button:disabled { opacity:.45; }
+#browserReadStatus,#browserPageSource { width:100%; margin:0; font-size:12px; overflow-wrap:anywhere; }
+#browserReadStatus:empty { display:none; }
+#browserPageSource { color:var(--noir-text); }

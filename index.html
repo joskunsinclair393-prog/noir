@@ -136,8 +136,9 @@
           <button type="button" id="browserHome" aria-label="Browser home" title="Browser home">⌂</button>
         </div>
         <div class="browser-address">
-          <input id="browserAddress" type="text" inputmode="url" autocomplete="off" spellcheck="false" aria-label="Website address" placeholder="Enter an HTTPS website">
-          <button type="submit" aria-label="Go to address" title="Go to address">→</button>
+          <input id="browserAddress" type="text" inputmode="url" autocomplete="off" spellcheck="false" aria-label="Website address" placeholder="Search Google or enter a website">
+          <button type="submit" aria-label="Go to address" title="Go to address">⌕</button>
+          <button type="button" id="browserClearAddress" aria-label="Clear address">×</button>
         </div>
         <a id="browserExternal" target="_blank" rel="noopener noreferrer" hidden>Open externally ↗</a>
         <button type="button" id="browserSidebarToggle" aria-controls="browserSidebar" aria-expanded="true">AI sidebar</button>
@@ -148,7 +149,7 @@
           <div id="browserEmpty" class="browser-empty">
             <img src="logo.svg" alt="" width="48" height="48">
             <h1>NOIR Browser</h1>
-            <p>Enter a website address to open it here.</p>
+            <p>Search Google or enter an HTTPS website.</p>
           </div>
           <div id="browserEmbedNotice" class="browser-embed-note" role="status" hidden>
             <span id="browserEmbedStatus">Some sites block embedding. If the page is blank or blocked, open it in a new tab.</span>
@@ -158,7 +159,13 @@
         </div>
         <aside class="browser-ai" id="browserSidebar" aria-label="NOIR AI sidebar">
           <header><img src="logo.svg" alt="" width="26" height="26"><strong>NOIR</strong><button type="button" id="browserClear">Clear conversation</button></header>
-          <p class="browser-ai-note">Paste text from a page to ask about it. NOIR cannot read the viewer yet. Messages are saved to chat history.</p>
+          <p class="browser-ai-note">Read a public page before asking NOIR about it. Messages are saved to chat history.</p>
+          <div class="browser-page-controls">
+            <button type="button" id="browserReadPage" disabled>Read Current Page</button>
+            <button type="button" id="browserClearContext" hidden>Clear Page Context</button>
+            <p id="browserReadStatus" role="status"></p>
+            <a id="browserPageSource" target="_blank" rel="noopener noreferrer" hidden></a>
+          </div>
           <div class="browser-messages" id="browserMessages" role="log" aria-label="Browser conversation"></div>
           <p id="browserChatStatus" role="status"></p>
           <form class="browser-chat-form" id="browserChatForm">

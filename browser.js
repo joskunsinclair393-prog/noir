@@ -11,7 +11,18 @@ export function parseWebsiteAddress(input, appOrigin) {
   return url.href;
 }
 
-export function createBrowserWorkspace({ send, onChat }) {
+export function resolveAddress(input, appOrigin) {
+  const value = input.trim();
+  if (!value || value.length > 2048) throw new Error('Enter a website or search phrase under 2,048 characters.');
+  if (/^[a-z][a-z\d+.-]*:/i.test(value) || (!/\s/.test(value) && value.split('/')[0].includes('.'))) {
+    return { url: parseWebsiteAddress(value, appOrigin), search: false };
+  }
+  const url = new URL('https://www.google.com/search');
+  url.searchParams.set('q', value);
+  return { url: url.href, search: true };
+}
+
+export function createBrowserWorkspace({ send, onChat, readPage, clearContext }) {
   const $ = id => document.getElementById(id);
   const frame = $('browserFrame');
   const address = $('browserAddress');
@@ -20,6 +31,19 @@ export function createBrowserWorkspace({ send, onChat }) {
   let chatId = null;
   let session = 0;
   let pending = false;
+  let page = null;
+  let reading = 0;
+  let loadTimer;
+  function forgetPage(revoke = true) {
+    reading++;
+    if (revoke && page) clearContext(page.id).catch(() => {});
+    page = null;
+    $('browserClearContext').hidden = true;
+    $('browserPageSource').hidden = true;
+    $('browserPageSource').removeAttribute('href');
+    $('browserReadStatus').textContent = '';
+  }
+
 
   function showView(browser) {
     $('assistantView').hidden = browser;
@@ -29,7 +53,11 @@ export function createBrowserWorkspace({ send, onChat }) {
   }
 
   function renderAddress() {
-    const url = entries[index];
+    const entry = entries[index];
+    const url = entry?.url;
+    clearTimeout(loadTimer);
+    forgetPage();
+    $('browserReadPage').disabled = !url || entry.search;
     address.value = url || '';
     $('browserBack').disabled = index === 0;
     $('browserForward').disabled = index === entries.length - 1;
@@ -39,11 +67,18 @@ export function createBrowserWorkspace({ send, onChat }) {
     $('browserEmbedNotice').hidden = !url;
     $('browserAddressError').hidden = true;
     $('browserEmbedStatus').textContent = 'If the page is blank or blocked, the site may prevent embedding. Open it in a new tab to continue.';
-    frame.hidden = !url;
+    frame.hidden = !url || entry.search;
+    if (entry?.search) {
+      $('browserEmbedStatus').textContent = 'Google search results open in a real browser tab. If it did not open, use the link below.';
+    } else if (url) {
+      $('browserEmbedStatus').textContent = 'Opening website…';
+      loadTimer = setTimeout(showEmbedFallback, 6500);
+    }
     if (url) {
       $('browserExternal').href = url;
       $('browserFallback').href = url;
-      frame.src = url;
+      if (entry.search) frame.removeAttribute('src');
+      else frame.src = url;
     } else {
       $('browserExternal').removeAttribute('href');
       $('browserFallback').removeAttribute('href');
@@ -51,9 +86,9 @@ export function createBrowserWorkspace({ send, onChat }) {
     }
   }
 
-  function navigate(url) {
-    if (entries[index] !== url) {
-      entries.splice(index + 1, entries.length, url);
+  function navigate(entry) {
+    if (entries[index]?.url !== entry?.url) {
+      entries.splice(index + 1, entries.length, entry);
       index++;
     }
     renderAddress();
@@ -63,7 +98,11 @@ export function createBrowserWorkspace({ send, onChat }) {
   $('browserViewButton').addEventListener('click', () => { showView(true); address.focus(); });
   $('browserToolbar').addEventListener('submit', event => {
     event.preventDefault();
-    try { navigate(parseWebsiteAddress(address.value, location.origin)); }
+    try {
+      const entry = resolveAddress(address.value, location.origin);
+      navigate(entry);
+      if (entry.search) window.open(entry.url, '_blank', 'noopener,noreferrer');
+    }
     catch (error) {
       $('browserAddressError').textContent = error.message;
       $('browserAddressError').hidden = false;
@@ -73,6 +112,37 @@ export function createBrowserWorkspace({ send, onChat }) {
   $('browserForward').addEventListener('click', () => { if (index < entries.length - 1) { index++; renderAddress(); } });
   $('browserRefresh').addEventListener('click', renderAddress);
   $('browserHome').addEventListener('click', () => { navigate(null); address.focus(); });
+  $('browserClearAddress').addEventListener('click', () => { address.value = ''; address.focus(); $('browserAddressError').hidden = true; });
+  function showEmbedFallback() {
+    if (!entries[index] || entries[index].search) return;
+    clearTimeout(loadTimer);
+    $('browserEmbedStatus').textContent = 'If the page is blank or blocked, the site may prevent embedding. Open it in a new tab to continue.';
+  }
+  frame.addEventListener('load', showEmbedFallback);
+  $('browserClearContext').addEventListener('click', () => forgetPage());
+  $('browserReadPage').addEventListener('click', async () => {
+    const entry = entries[index];
+    if (!entry || entry.search || !confirm('Allow NOIR to read this public URL and use its text for AI replies in this sidebar?')) return;
+    forgetPage();
+    const attempt = reading;
+    $('browserReadPage').disabled = true;
+    $('browserReadStatus').textContent = 'Reading public page…';
+    try {
+      const result = await readPage(entry.url);
+      if (attempt !== reading) { clearContext(result.id).catch(() => {}); return; }
+      page = result;
+      const source = $('browserPageSource');
+      source.href = result.url;
+      source.textContent = result.url;
+      source.hidden = false;
+      $('browserClearContext').hidden = false;
+      $('browserReadStatus').textContent = 'Page read. Ask NOIR about this source.';
+    } catch (error) {
+      if (attempt === reading) $('browserReadStatus').textContent = error.message;
+    } finally {
+      if (attempt === reading) $('browserReadPage').disabled = false;
+    }
+  });
   frame.addEventListener('error', () => {
     $('browserEmbedStatus').textContent = 'This site could not be shown in the viewer. Open it in a new tab to continue.';
   });
@@ -103,6 +173,8 @@ export function createBrowserWorkspace({ send, onChat }) {
 
   function clearConversation() {
     session++;
+    forgetPage();
+    $('browserReadPage').disabled = !entries[index] || entries[index].search;
     chatId = null;
     $('browserMessages').replaceChildren();
     $('browserPrompt').value = '';
@@ -120,7 +192,7 @@ export function createBrowserWorkspace({ send, onChat }) {
     prompt.value = '';
     setPending(true);
     try {
-      const result = await send(chatId, message);
+      const result = await send(chatId, message, page?.id);
       if (current !== session) return;
       chatId = result.chat.id;
       onChat(result);

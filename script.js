@@ -873,10 +873,12 @@
   }
   import('./browser.js').then(({ createBrowserWorkspace }) => {
     browserWorkspace = createBrowserWorkspace({
-      async send(chatId, message) {
+      readPage: url => api('/api/browser/read', { method: 'POST', body: JSON.stringify({ url, consent: true }) }),
+      clearContext: id => api('/api/browser/context', { method: 'DELETE', body: JSON.stringify({ id }) }),
+      async send(chatId, message, pageContextId) {
         const result = await api('/api/chat', {
           method: 'POST',
-          body: JSON.stringify({ chatId, message, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+          body: JSON.stringify({ chatId, message, pageContextId, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
         });
         return result;
       },
