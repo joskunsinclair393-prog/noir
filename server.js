@@ -666,11 +666,11 @@ export function createNoirServer(options = {}) {
   const routingConfig = config.allowRequests && config.authRequired && config.supabaseServiceRoleKey
     ? readRoutingConfig(env.smartRouting ?? process.env.SMART_AI_ROUTING, providerKeys) : null;
   const routingConsent = routingConfig && createHash('sha256').update(routingConfig.providers.map(provider => provider.id).sort().join(',')).digest('hex');
-  function routingSummary(data, user, subscription) {
+  function routingSummary(user, subscription) {
     const eligible = Boolean(user && subscription?.status === 'active' && subscriptionIsActive(subscription));
     return {
       eligible, available: Boolean(routingConfig),
-      enabled: Boolean(eligible && routingConsent && data.smartRouting?.consent === routingConsent),
+      enabled: Boolean(eligible && routingConfig),
       providers: routingConfig?.providers.map(provider => provider.label) || [],
       consentVersion: routingConsent,
     };
@@ -712,7 +712,7 @@ export function createNoirServer(options = {}) {
       creditsUnlimited: hasUnlimitedAccess(user),
       creditsPerMessage: config.creditsPerMessage,
       provider: providerInfo(),
-      smartRouting: routingSummary(data, user, subscription),
+      smartRouting: routingSummary(user, subscription),
       pluginUsage: data.pluginUsage || { fileAnalyses: 0, webSearches: 0 },
     };
   }
@@ -805,23 +805,6 @@ export function createNoirServer(options = {}) {
           const { data, user } = await getSession(request, response);
           const subscription = user ? await getSubscriptionRow(user.id) : null;
           return sendJson(response, 200, { session: sessionSummary(data, user, subscription), user: user ? { email: user.email } : null, chats: data.chats.map(chatSummary).sort((a, b) => b.updatedAt - a.updatedAt), integrations: integrationInfo() });
-        }
-        if (request.method === 'POST' && url.pathname === '/api/settings/smart-routing') {
-          const { key, data, user } = await getSession(request, response);
-          if (!user) return sendJson(response, 401, { error: 'Sign in to change Smart AI Routing.' });
-          if (!String(request.headers['content-type'] || '').includes('application/json')) return sendJson(response, 415, { error: 'Send JSON requests only.' });
-          const body = await readJsonBody(request);
-          if (typeof body.enabled !== 'boolean') return sendJson(response, 400, { error: 'Choose whether to enable Smart AI Routing.' });
-          const subscription = await getSubscriptionRow(user.id);
-          const routing = routingSummary(data, user, subscription);
-          if (body.enabled && !routing.eligible) return sendJson(response, 403, { error: 'Smart AI Routing requires an active NOIR Plus subscription.' });
-          if (body.enabled && (!routing.available || body.consent !== true || JSON.stringify(body.providers) !== JSON.stringify(routing.providers))) return sendJson(response, 400, { error: 'Review the current provider list before enabling Smart AI Routing.' });
-          await withSessionLock(key, async () => {
-            const settings = { consent: body.enabled ? routingConsent : null };
-            await persistAccountData(user.id, { ...data, smartRouting: settings });
-            data.smartRouting = settings;
-          });
-          return sendJson(response, 200, { session: sessionSummary(data, user, subscription) });
         }
         if (request.method === 'GET' && url.pathname === '/api/integrations') {
           return sendJson(response, 200, { integrations: integrationInfo() });
@@ -1020,9 +1003,9 @@ export function createNoirServer(options = {}) {
           const unlimitedAccess = hasUnlimitedAccess(user);
           checkRateLimit(key, unlimitedAccess || isPlus);
           const result = await withSessionLock(key, async () => {
-            const routing = routingSummary(data, user, subscription);
+            const routing = routingSummary(user, subscription);
             if (config.paidRoutingOnly && !routing.eligible) throw Object.assign(new Error('Live AI replies require an active NOIR Plus subscription.'), { status: 403, code: 'paid_ai_required' });
-            if (config.paidRoutingOnly && !routing.enabled) throw Object.assign(new Error('Enable Smart AI Routing in Settings → Your plan to send a message.'), { status: 403, code: 'routing_consent_required' });
+            if (config.paidRoutingOnly && !routing.enabled) throw Object.assign(new Error('Smart AI Routing is currently unavailable. Try again later.'), { status: 503, code: 'routing_unavailable' });
             if (!routing.enabled && !providerInfo().ready && !options.generate) {
               if (!config.allowRequests) await generate([]);
               if (!providerInfo().keyConfigured) await generate([]);

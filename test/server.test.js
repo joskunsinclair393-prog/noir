@@ -548,13 +548,10 @@ test('Smart AI Routing requires active paid access and keeps public page context
   const base = await listen(server);
   const headers = { authorization: 'Bearer test', 'content-type': 'application/json' };
   const post = (path, body) => fetch(base + path, { method: 'POST', headers, body: JSON.stringify(body) });
-  const setting = { enabled: true, consent: true, providers: ['OpenAI', 'Anthropic Claude'] };
-  const settingsPath = '/api/settings/smart-routing';
-  assert.equal((await post(settingsPath, setting)).status, 403);
   const free = await (await post('/api/chat', { message: 'Hello', routingPageConsent: true })).json();
   assert.equal(free.routing, null);
   status = 'active';
-  const enabled = await (await post(settingsPath, setting)).json();
+  const enabled = await (await fetch(base + '/api/bootstrap', { headers })).json();
   assert.equal(enabled.session.smartRouting.enabled, true);
   assert.doesNotMatch(JSON.stringify(enabled), /private-openai|private-anthropic|private-db/);
   const routed = await (await post('/api/chat', { chatId: free.chat.id, message: 'Continue' })).json();
@@ -573,7 +570,6 @@ test('Smart AI Routing requires active paid access and keeps public page context
   assert.equal(reservations, 4);
 
   periodEnd = '2000-01-01T00:00:00Z';
-  assert.equal((await post(settingsPath, setting)).status, 403);
   const expired = await (await post('/api/chat', { message: 'Hello again' })).json();
   assert.equal(expired.routing, null);
   assert.equal(reservations, 4);
