@@ -28,11 +28,11 @@ test('refusal, auth failure, and ambiguous transport failure never switch', asyn
   }
 });
 
-test('budget denial blocks dispatch; unavailable providers are limited to two attempts', async () => {
+test('budget denial blocks dispatch; unavailable providers are each tried once', async () => {
   await assert.rejects(route({ reserve: async () => false, generate: async () => assert.fail('Unexpected dispatch') }), { code: 'routing_limit' });
   let calls = 0;
   await assert.rejects(route({ generate: async () => { calls++; throw new ProviderError(503, 'Unavailable', true); } }), { code: 'routing_unavailable' });
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   await assert.rejects(route({ config: { ...config, requestMicros: 1 }, generate: async () => assert.fail('Over-budget dispatch') }), { code: 'routing_limit' });
 });
 
