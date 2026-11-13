@@ -275,6 +275,7 @@ export function createNoirServer(options = {}) {
     openaiApiKey: String(env.openaiApiKey ?? process.env.OPENAI_API_KEY ?? ''),
     braveSearchApiKey: String(env.braveSearchApiKey ?? process.env.BRAVE_SEARCH_API_KEY ?? '').trim(),
     webSearchEnabled: env.webSearchEnabled ?? bool(process.env.ENABLE_WEB_SEARCH, false),
+    paidRoutingOnly: env.paidRoutingOnly ?? bool(process.env.PAID_ROUTING_ONLY, false),
     allowRequests: env.allowRequests ?? bool(process.env.ALLOW_BILLABLE_REQUESTS, false),
     creditsEnabled: env.creditsEnabled ?? bool(process.env.ENABLE_CREDITS, true),
     startingCredits: integer(env.startingCredits ?? process.env.STARTING_CREDITS, 100),
@@ -1020,6 +1021,8 @@ export function createNoirServer(options = {}) {
           checkRateLimit(key, unlimitedAccess || isPlus);
           const result = await withSessionLock(key, async () => {
             const routing = routingSummary(data, user, subscription);
+            if (config.paidRoutingOnly && !routing.eligible) throw Object.assign(new Error('Live AI replies require an active NOIR Plus subscription.'), { status: 403, code: 'paid_ai_required' });
+            if (config.paidRoutingOnly && !routing.enabled) throw Object.assign(new Error('Enable Smart AI Routing in Settings → Your plan to send a message.'), { status: 403, code: 'routing_consent_required' });
             if (!routing.enabled && !providerInfo().ready && !options.generate) {
               if (!config.allowRequests) await generate([]);
               if (!providerInfo().keyConfigured) await generate([]);
@@ -1104,6 +1107,7 @@ export function createNoirServer(options = {}) {
             const routingUser = routing.enabled && !attachments.length && !chat.messages.some(item => item.attachments?.length)
               && (!(pageContext || plugins.includes('Web Search') || chat.usedWebContext || chat.messages.some(item => item.role === 'assistant' && /(?:\n\nPages checked:|\n\nSources\n|Untrusted public webpage excerpt)/.test(item.text))) ||
                 body.routingPageConsent === true && body.routingConsentVersion === routingConsent) ? user : null;
+            if (config.paidRoutingOnly && !routingUser) throw Object.assign(new Error('This reply requires a text-only chat and consent to route any included web sources.'), { status: 403, code: 'routing_context_required' });
             try { generated = await generate(providerHistory, timeZone, outputBudget, signal, routingUser); }
             catch (error) {
               if (!signal.aborted) throw error;
