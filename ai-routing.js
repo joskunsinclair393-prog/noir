@@ -82,7 +82,11 @@ export function readRoutingConfig(raw, keys) {
       seen.add(id);
       return { ...entry, label: providers[id] };
     });
-    return { ...config, providers: entries };
+    return { ...config, providers: [
+      ...entries.filter(entry => entry.id === 'openai'),
+      ...entries.filter(entry => entry.id !== 'openai' && entry.id !== 'gemini'),
+      ...entries.filter(entry => entry.id === 'gemini'),
+    ] };
   } catch {
     console.error('[NOIR] Smart AI Routing configuration is invalid or missing provider credentials.');
     return null;
@@ -96,7 +100,6 @@ export async function routeGeneration({ config, args, reserve, generate, signal 
   const input = Buffer.byteLength(args.instructions) + args.messages.reduce((sum, message) => sum + Buffer.byteLength(message.text) + 64, 256);
   for (const provider of config.providers) {
     signal.throwIfAborted();
-    if (attempts >= 2) break;
     if (input + args.maxOutputTokens > provider.contextTokens) continue;
     const cost = Math.ceil((input * provider.inputPerMillion + args.maxOutputTokens * provider.outputPerMillion) / 1_000_000);
     if (spent + cost > config.requestMicros) continue;
