@@ -761,3 +761,9 @@ body.light-theme :is(.browser-view,.view-switch) {
 #browserExploreStatus:empty { display:none; }
 #browserExploreProgress { max-height:100px; overflow:auto; padding-inline-start:20px; }
 .browser-messages article a { display:block; color:var(--noir-text); font-size:12px; overflow-wrap:anywhere; margin-top:5px; }
+
+.routing-status {
+  font-size: 0.8rem;
+  margin: 0.45rem 1rem;
+  color: inherit;
+}
