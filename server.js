@@ -1,3 +1,4 @@
+import { searchPublicWeb } from './search-service.js';
 import { researchPublicWeb } from './research-agent.js';
 import { exploreWebsite } from './website-explorer.js';
 import { readPublicPage, PAGE_UNAVAILABLE } from './page-reader.js';
@@ -697,30 +698,9 @@ export function createNoirServer(options = {}) {
     return { plugins, connectors, fileLimits: { maxFiles: MAX_ATTACHMENTS, maxFileBytes: MAX_ATTACHMENT_BYTES, maxTotalBytes: MAX_ATTACHMENT_TOTAL_BYTES, binaryProviders: ['gemini', 'openai'] } };
   }
 
-  async function searchWeb(query, signal) {
-    if (!config.webSearchEnabled || !config.braveSearchApiKey) throw Object.assign(new Error('Web Search is not configured. The site owner must add a Brave Search API key and enable this paid-capable feature.'), { status: 503, code: 'plugin_not_configured' });
-    const endpoint = new URL('https://api.search.brave.com/res/v1/web/search');
-    endpoint.searchParams.set('q', query.slice(0, 400));
-    endpoint.searchParams.set('count', '5');
-    endpoint.searchParams.set('safesearch', 'moderate');
-    let response;
-    try {
-      response = await (options.fetchImpl || fetch)(endpoint, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000), headers: { accept: 'application/json', 'x-subscription-token': config.braveSearchApiKey } });
-    } catch {
-      throw Object.assign(new Error('Web Search could not reach its search provider. Try again shortly.'), { status: 502, code: 'plugin_provider_unavailable' });
-    }
-    let data = {};
-    try { data = await response.json(); } catch {}
-    if (!response.ok) throw Object.assign(new Error(response.status === 429 ? 'Web Search reached its provider rate limit. Try again later.' : 'Web Search could not complete this search. Check its provider configuration.'), { status: response.status === 429 ? 429 : 502, code: 'plugin_provider_error' });
-    const results = (data.web?.results || []).slice(0, 5).flatMap(item => {
-      try {
-        const link = new URL(item.url);
-        if (link.protocol !== 'https:') return [];
-        return [{ title: String(item.title || link.hostname).slice(0, 180), url: link.href, description: String(item.description || '').slice(0, 1200) }];
-      } catch { return []; }
-    });
-    return results;
-  }
+  const searchWeb = (query, signal) => searchPublicWeb(query, {
+    signal, enabled: config.webSearchEnabled, apiKey: config.braveSearchApiKey, fetchImpl: options.fetchImpl,
+  });
 
   function sessionSummary(data, user = null, subscription = null) {
     const daily = dailyTokenUsage(data);
@@ -977,7 +957,11 @@ export function createNoirServer(options = {}) {
         if (request.method === 'DELETE' && url.pathname === '/api/browser/context') {
           if (!accountUser) return sendJson(response, 401, { error: 'Sign in first.' });
           const { id } = await readJsonBody(request, 1024);
-          if (pageContexts.get(id)?.owner === accountUser.id) { pageContexts.delete(id); explorationJobs.delete(id); }
+          if (pageContexts.get(id)?.owner === accountUser.id) {
+            explorationJobs.get(id)?.controller.abort();
+            pageContexts.delete(id);
+            explorationJobs.delete(id);
+          }
           return sendJson(response, 200, {});
         }
         if (request.method === 'POST' && url.pathname === '/api/chat') {
@@ -985,9 +969,11 @@ export function createNoirServer(options = {}) {
           const body = await readJsonBody(request, 8 * 1024 * 1024);
           let message = typeof body.message === 'string' ? body.message.trim() : '';
           let pageContext;
+          let taskSignal;
           if (body.pageContextId != null) {
             expirePageReads(Date.now());
             pageContext = pageContexts.get(body.pageContextId);
+            taskSignal = explorationJobs.get(body.pageContextId)?.controller.signal;
             if (!accountUser || pageContext?.owner !== accountUser.id) {
               return sendJson(response, 404, { error: 'Page context expired or is unavailable. Read the page again.' });
             }
@@ -1095,12 +1081,19 @@ export function createNoirServer(options = {}) {
                 : '\n\nThe search provider returned no results. Tell the user that no results were found.';
               latest.text += searchContext;
             }
-            const task = explorationJobs.get(body.pageContextId);
-            const signal = task?.controller.signal;
-            signal?.throwIfAborted();
-            const generated = await generate(providerHistory, timeZone, outputBudget,
-              signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : undefined);
-            signal?.throwIfAborted();
+            if (pageContext && (taskSignal?.aborted || pageContexts.get(body.pageContextId) !== pageContext || pageContext.expires <= Date.now())) {
+              throw Object.assign(new Error('Page context was cleared or expired. Read the page again.'), { status: 404 });
+            }
+            const deadline = AbortSignal.timeout(20000);
+            const signal = taskSignal ? AbortSignal.any([taskSignal, deadline]) : deadline;
+            let generated;
+            try { generated = await generate(providerHistory, timeZone, outputBudget, signal); }
+            catch (error) {
+              if (!signal.aborted) throw error;
+            }
+            if (signal.aborted) {
+              throw Object.assign(new Error(taskSignal?.aborted ? 'Research was stopped.' : 'The AI response timed out. Try again.'), { status: taskSignal?.aborted ? 400 : 503 });
+            }
             if (pageContext?.pages) {
               generated.text += '\n\nPages checked:\n' + pageContext.pages.map(page => page.url).join('\n');
               if (pageContext.failures.length) generated.text += '\n\nSome pages could not be accessed. The findings may be incomplete.';

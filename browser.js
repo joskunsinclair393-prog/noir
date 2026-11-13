@@ -72,6 +72,7 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
     const url = entry?.url;
     clearTimeout(loadTimer);
     const previousOrigin = contextOrigin;
+    if (exploring && !previousOrigin) clearConversation();
     const newOrigin = url ? new URL(url).origin : null;
     if (previousOrigin && previousOrigin !== newOrigin) {
       clearConversation();
@@ -190,6 +191,7 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
       : 'Allow NOIR to explore up to five public pages on ' + origin + ' and send relevant excerpts to the AI?';
     if (!confirm(permission)) return;
     clearConversation();
+    prompt.value = question;
     contextOrigin = origin;
     exploring = true;
     const attempt = reading;
@@ -214,6 +216,7 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
         if (result.status === 'failed') throw new Error(result.error || 'NOIR could not read permitted public pages on this website.');
         if (result.status === 'complete') {
           page = result.context;
+          contextOrigin = new URL(page.url).origin;
           $('browserClearContext').hidden = false;
           status.textContent = 'Read ' + page.sources.length + ' page(s). ' + page.failed + ' unavailable.';
           prompt.value = question;

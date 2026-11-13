@@ -7,6 +7,14 @@ export async function researchPublicWeb({ question, start, search, read, signal,
   const pages = [];
   const failures = [];
   const visited = new Set();
+  const robotsCache = new Map();
+  async function readOnce(url, options) {
+    if (options.robots) {
+      if (!robotsCache.has(url)) robotsCache.set(url, read(url, options));
+      return robotsCache.get(url);
+    }
+    return read(url, options);
+  }
   let remaining = 5;
   let searches = 0;
   const explicit = question.match(/https:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,;)]+$/, '');
@@ -24,7 +32,7 @@ export async function researchPublicWeb({ question, start, search, read, signal,
     const budget = Math.min(limit, remaining);
     remaining -= budget;
     try {
-      const result = await exploreWebsite(url, question, { limit: budget, read, signal: stop, onPage });
+      const result = await exploreWebsite(url, question, { limit: budget, read: readOnce, signal: stop, onPage });
       for (const page of result.pages) {
         visited.add(page.url);
         if (!pages.some(item => item.url === page.url)) pages.push(page);

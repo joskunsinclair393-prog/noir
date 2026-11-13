@@ -19,10 +19,12 @@ export function readerURL(value) {
   if (typeof value !== 'string' || value.length > 2048 || /[\s\\]/.test(value)) throw new Error(PAGE_UNAVAILABLE);
   const url = new URL(value);
   const host = url.hostname.toLowerCase().replace(/\.$/, '');
+  let pathname;
+  try { pathname = decodeURIComponent(url.pathname); } catch { throw new Error(PAGE_UNAVAILABLE); }
   if (url.protocol !== 'https:' || url.port || url.username || url.password ||
       !host.includes('.') || isIP(host) || /\.(?:local|localhost|internal|test|invalid|onion|home|lan)$/.test(host) ||
-      /(?:^|\/)(?:login|signin|sign-in|oauth|sso|portal|account|auth)(?:\/|$)/i.test(url.pathname) ||
-      [...url.searchParams.keys()].some(key => /token|password|session|signature|secret|auth|^key$|^code$/i.test(key))) {
+      /(?:^|\/)(?:login|signin|sign-in|oauth|sso|portal|account|auth)(?:\/|$)/i.test(pathname) ||
+      [...url.searchParams.keys()].some(key => /token|password|session|signature|secret|auth|^key$|^code$|credential|api.?key|^state$/i.test(key))) {
     throw new Error(PAGE_UNAVAILABLE);
   }
   url.hash = '';

@@ -50,3 +50,32 @@ test('explicit public website questions stay within the website and cancellation
     read: async () => assert.fail('Read ran after stop'),
   }), { name: 'AbortError' });
 });
+
+test('research reuses robots rules across pages on the same origin', async () => {
+  let robots = 0;
+  const result = await researchPublicWeb({
+    question: 'Compare laptops', signal: new AbortController().signal, onPage() {},
+    search: async () => ['a', 'b', 'c'].map(path => ({ url: 'https://example.com/' + path })),
+    read: async (url, options) => {
+      if (options.robots) { robots++; return { text: '' }; }
+      return { url, text: 'Laptop details', html: '<title>Laptop</title>' };
+    },
+  });
+  assert.equal(result.pages.length, 3);
+  assert.equal(robots, 1);
+});
+
+test('search reports missing credentials and forbids redirects with provider keys', async () => {
+  const { searchPublicWeb } = await import('../search-service.js');
+  await assert.rejects(searchPublicWeb('laptops', { enabled: false }), { code: 'plugin_not_configured' });
+  const results = await searchPublicWeb('laptops', {
+    enabled: true, apiKey: 'test',
+    fetchImpl: async (url, init) => {
+      assert.equal(url.hostname, 'api.search.brave.com');
+      assert.equal(init.redirect, 'error');
+      assert.equal(init.headers['x-subscription-token'], 'test');
+      return new Response(JSON.stringify({ web: { results: null } }));
+    },
+  });
+  assert.deepEqual(results, []);
+});
