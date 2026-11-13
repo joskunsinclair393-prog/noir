@@ -1084,7 +1084,7 @@ export function createNoirServer(options = {}) {
             if (pageContext && (taskSignal?.aborted || pageContexts.get(body.pageContextId) !== pageContext || pageContext.expires <= Date.now())) {
               throw Object.assign(new Error('Page context was cleared or expired. Read the page again.'), { status: 404 });
             }
-            const deadline = AbortSignal.timeout(20000);
+            const deadline = AbortSignal.timeout(routing.enabled ? 45_000 : 20_000);
             const signal = taskSignal ? AbortSignal.any([taskSignal, deadline]) : deadline;
             let generated;
             const routingUser = routing.enabled && !attachments.length && !chat.messages.some(item => item.attachments?.length)
