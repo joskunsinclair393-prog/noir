@@ -606,3 +606,17 @@ test('xAI can serve standard chat through its Responses API', async () => {
   assert.doesNotMatch(JSON.stringify(result), /private-xai-key/);
   assert.equal(calls, 1);
 });
+
+test('paid-only mode blocks standard generation for free accounts before calling any model', async () => {
+  const server = createNoirServer({
+    dataFile: temporaryStore(),
+    config: { paidRoutingOnly: true, allowRequests: true, authRequired: false },
+    generate: async () => assert.fail('Free account reached AI generation'),
+  });
+  const base = await listen(server);
+  const response = await fetch(base + '/api/chat', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'Hello' }),
+  });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, 'paid_ai_required');
+});
