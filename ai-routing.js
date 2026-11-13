@@ -72,7 +72,7 @@ export function readRoutingConfig(raw, keys) {
     const config = JSON.parse(raw);
     const positive = value => Number.isSafeInteger(value) && value > 0 && value <= 1_000_000_000;
     if (![config.userMonthlyMicros, config.requestMicros, config.userMonthlyAttempts].every(positive) ||
-        !Array.isArray(config.providers) || config.providers.length < 2 || config.providers.length > Object.keys(providers).length) throw Error();
+        !Array.isArray(config.providers) || config.providers.length < 1 || config.providers.length > Object.keys(providers).length) throw Error();
     const seen = new Set();
     const entries = config.providers.map(entry => {
       const { id, model } = entry;
