@@ -15,9 +15,9 @@ services:
       - key: AUTH_REQUIRED
         value: "true"
       - key: AI_PROVIDER
-        value: groq
+        value: gemini
       - key: AI_MODEL
-        value: llama-3.3-70b-versatile
+        value: gemini-3.8-flash
       - key: ENABLE_CREDITS
         value: "true"
       - key: STARTING_CREDITS
@@ -48,7 +48,7 @@ services:
         sync: false
       - key: GOOGLE_SITE_VERIFICATION
         sync: false
-      - key: GROQ_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
       - key: ALLOW_BILLABLE_REQUESTS
         value: "false"
