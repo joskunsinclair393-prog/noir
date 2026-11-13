@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createNoirServer, generateWithGemini, generateWithGroq, generateWithOpenAI, verifyStripeSignature } from '../server.js';
+import { createNoirServer, generateWithGemini, generateWithOpenAI, verifyStripeSignature } from '../server.js';
 
 const runningServers = [];
 const temporaryFolders = [];
@@ -67,31 +67,6 @@ test('OpenAI adapter returns response text and actual Responses API usage', asyn
   assert.deepEqual(result.usage, { inputTokens: 11, outputTokens: 7, totalTokens: 18 });
   assert.equal(requestOptions.headers.authorization, 'Bearer private-openai-key');
   assert.equal(JSON.parse(requestOptions.body).store, false);
-});
-
-test('Groq adapter sends chat messages securely and returns actual token usage', async () => {
-  let requestUrl;
-  let requestOptions;
-  const result = await generateWithGroq({
-    apiKey: 'private-groq-key', model: 'llama-test', instructions: 'system', maxOutputTokens: 200,
-    messages: [{ role: 'user', text: 'Hello' }, { role: 'assistant', text: 'Hi' }],
-    fetchImpl: async (url, options) => {
-      requestUrl = url;
-      requestOptions = options;
-      return new Response(JSON.stringify({
-        choices: [{ message: { content: 'Hello from Groq.' } }],
-        usage: { prompt_tokens: 11, completion_tokens: 6, total_tokens: 17 },
-      }), { status: 200, headers: { 'content-type': 'application/json' } });
-    },
-  });
-  assert.equal(result.text, 'Hello from Groq.');
-  assert.deepEqual(result.usage, { inputTokens: 11, outputTokens: 6, totalTokens: 17 });
-  assert.equal(requestUrl, 'https://api.groq.com/openai/v1/chat/completions');
-  assert.equal(new URL(requestUrl).search, '');
-  assert.equal(requestOptions.headers.authorization, 'Bearer private-groq-key');
-  const sent = JSON.parse(requestOptions.body);
-  assert.deepEqual(sent.messages.map(message => message.role), ['system', 'user', 'assistant']);
-  assert.equal(sent.max_tokens, 200);
 });
 
 test('chat, token totals, and credits are server-owned and isolated by session', async () => {
@@ -401,7 +376,7 @@ test('TXT and CSV attachments are validated, kept out of saved chat text, and in
   assert.equal((await invalid.json()).code, 'invalid_attachment');
 });
 
-test('Gemini receives valid PDF bytes inline while Groq refuses unsupported binary attachments', async () => {
+test('Gemini receives valid PDF bytes inline', async () => {
   let contents;
   const result = await generateWithGemini({
     apiKey: 'private-gemini-key', model: 'gemini-test', instructions: 'system', maxOutputTokens: 80,
@@ -415,7 +390,6 @@ test('Gemini receives valid PDF bytes inline while Groq refuses unsupported bina
   assert.equal(contents[0].parts[1].inline_data.mime_type, 'application/pdf');
   assert.equal(contents[0].parts[1].inline_data.data, Buffer.from('%PDF-1.7 test').toString('base64'));
 
-  await assert.rejects(() => generateWithGroq({ apiKey: 'private-groq-key', model: 'llama-test', instructions: 'system', maxOutputTokens: 20, messages: [{ role: 'user', text: 'View image', attachments: [{ name: 'image.png', mimeType: 'image/png', data: 'iVBORw0KGgo=' }] }] }), /cannot analyze PDF or image attachments/);
 });
 
 test('OpenAI file and image parts use server-generated data URLs and never expose the provider key', async () => {
@@ -543,4 +517,92 @@ test('exploration progress and grounded sources are accessible only to the owner
   assert.match((await response.json()).chat.messages.at(-1).text, /https:\/\/example\.com\/events/);
   assert.equal((await call(job, 'alice', 'DELETE')).status, 200);
   assert.equal((await call(job, 'alice')).status, 404);
+});
+
+test('Smart AI Routing requires active paid access and keeps public page context opt-in per reply', async () => {
+  let status = 'free';
+  let periodEnd = '2099-01-01T00:00:00Z';
+  let pageReads = 0;
+  let reservations = 0;
+  const calls = [];
+  const provider = id => ({ id, model: 'mock-model', inputPerMillion: 10000, outputPerMillion: 10000, monthlyMicros: 50000, monthlyAttempts: 50, contextTokens: 50000 });
+  const server = createNoirServer({
+    dataFile: temporaryStore(),
+    config: {
+      authRequired: true, supabaseUrl: 'https://db.example', supabaseAnonKey: 'public', supabaseServiceRoleKey: 'private-db',
+      provider: 'gemini', allowRequests: true, geminiApiKey: 'private-gemini', openaiApiKey: 'private-openai', anthropicApiKey: 'private-anthropic',
+      smartRouting: JSON.stringify({ userMonthlyMicros: 10000, userMonthlyAttempts: 10, requestMicros: 2000, providers: ['openai', 'anthropic'].map(provider) }),
+    },
+    pageReader: async url => { pageReads++; return { url, text: 'The library opens on Friday.' }; },
+    fetchImpl: async (url, init) => {
+      if (url.includes('/auth/v1/user')) return Response.json({ id: 'routing-user', email: 'routing@example.org' });
+      if (url.includes('/noir_user_data')) return Response.json([]);
+      if (url.includes('/noir_subscriptions')) return Response.json([{ status, current_period_end: periodEnd }]);
+      if (url.includes('/rpc/noir_reserve_routing')) { reservations++; return Response.json(true); }
+      calls.push({ host: new URL(url).hostname, body: init.body });
+      if (url.includes('api.openai.com')) return Response.json({ error: { code: 'rate_limit_exceeded' } }, { status: 429 });
+      if (url.includes('api.anthropic.com')) return Response.json({ content: [{ type: 'text', text: 'Friday.' }], usage: { input_tokens: 60, output_tokens: 2 } });
+      return Response.json({ candidates: [{ content: { parts: [{ text: 'Standard reply.' }] } }], usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 4 } });
+    },
+  });
+  const base = await listen(server);
+  const headers = { authorization: 'Bearer test', 'content-type': 'application/json' };
+  const post = (path, body) => fetch(base + path, { method: 'POST', headers, body: JSON.stringify(body) });
+  const setting = { enabled: true, consent: true, providers: ['OpenAI', 'Anthropic Claude'] };
+  const settingsPath = '/api/settings/smart-routing';
+  assert.equal((await post(settingsPath, setting)).status, 403);
+  const free = await (await post('/api/chat', { message: 'Hello', routingPageConsent: true })).json();
+  assert.equal(free.routing, null);
+  status = 'active';
+  const enabled = await (await post(settingsPath, setting)).json();
+  assert.equal(enabled.session.smartRouting.enabled, true);
+  assert.doesNotMatch(JSON.stringify(enabled), /private-openai|private-anthropic|private-db/);
+  const routed = await (await post('/api/chat', { chatId: free.chat.id, message: 'Continue' })).json();
+  assert.deepEqual(routed.routing, { provider: 'Anthropic Claude', switched: true });
+  assert.match(calls.at(-1).body, /Standard reply/);
+
+  const page = await (await post('/api/browser/read', { url: 'https://example.org/', consent: true })).json();
+  const pageId = page.pageContextId || page.contextId || page.id;
+  assert.ok(pageId, JSON.stringify(page));
+  const withoutConsent = await (await post('/api/chat', { message: 'What day?', pageContextId: pageId })).json();
+  assert.equal(withoutConsent.routing?.provider, 'Google Gemini');
+  const withConsent = await (await post('/api/chat', { message: 'What day?', pageContextId: pageId, routingPageConsent: true, routingConsentVersion: enabled.session.smartRouting.consentVersion })).json();
+  assert.equal(withConsent.routing?.provider, 'Anthropic Claude');
+  assert.match(calls.at(-1).body, /library opens on Friday/);
+  assert.equal(pageReads, 1);
+  assert.equal(reservations, 4);
+
+  periodEnd = '2000-01-01T00:00:00Z';
+  assert.equal((await post(settingsPath, setting)).status, 403);
+  const expired = await (await post('/api/chat', { message: 'Hello again' })).json();
+  assert.equal(expired.routing, null);
+  assert.equal(reservations, 4);
+});
+
+test('xAI can serve standard chat through its Responses API', async () => {
+  let calls = 0;
+  const server = createNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: false, provider: 'xai', model: 'mock-grok', xaiApiKey: 'private-xai-key', allowRequests: true },
+    fetchImpl: async (url, init) => {
+      calls++;
+      assert.equal(url, 'https://api.x.ai/v1/responses');
+      assert.equal(init.headers.authorization, 'Bearer private-xai-key');
+      assert.equal(JSON.parse(init.body).store, false);
+      return Response.json({
+        output: [{ type: 'message', content: [{ type: 'output_text', text: 'Hello from xAI.' }] }],
+        usage: { input_tokens: 12, output_tokens: 7 },
+      });
+    },
+  });
+  const base = await listen(server);
+  const response = await fetch(base + '/api/chat', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: 'Hello' }),
+  });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.chat.messages.at(-1).text, 'Hello from xAI.');
+  assert.equal(result.usage.totalTokens, 19);
+  assert.doesNotMatch(JSON.stringify(result), /private-xai-key/);
+  assert.equal(calls, 1);
 });

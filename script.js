@@ -206,6 +206,14 @@
     $('plusManage').hidden = !manageAvailable;
     $('settingsUpgradeButton').hidden = isPlus;
     $('plusCheckout').hidden = isPlus;
+    const routing = data.smartRouting;
+    $('routingToggle').disabled = !routing?.eligible || !routing.available;
+    $('routingToggle').classList.toggle('is-on', Boolean(routing?.enabled));
+    $('routingToggle').setAttribute('aria-checked', String(Boolean(routing?.enabled)));
+    $('routingUpgrade').hidden = isPlus;
+    $('routingHelp').textContent = !isPlus
+      ? 'Automatic AI switching is available with NOIR Plus. Upgrade to keep using supported AI providers when one becomes unavailable.'
+      : routing?.available ? 'Configured providers: ' + routing.providers.join(', ') + '. Usage limits apply.' : 'Smart AI Routing is awaiting provider setup.';
     $('profileDailyUsage').hidden = isPlus || !data.dailyTokenLimit;
     $('profileDailyUsage').textContent = !isPlus && data.dailyTokenLimit ? `Today: ${numberFormat.format(data.dailyTokens || 0)} / ${numberFormat.format(data.dailyTokenLimit)} tokens` : '';
 
@@ -655,6 +663,30 @@
   document.querySelectorAll('[data-open-settings]').forEach(button => button.addEventListener('click', () => openSettings(button.dataset.openSettings)));
   document.querySelectorAll('[data-settings-tab]').forEach(tab => tab.addEventListener('click', () => openSettings(tab.dataset.settingsTab)));
   $('profilePlanAction').addEventListener('click', openPlus);
+  function showRoutingResult(id, routing) {
+    const status = $(id);
+    status.hidden = !routing;
+    status.textContent = routing ? (routing.switched ? 'Switched AI provider to continue your request. ' : '') + 'AI provider: ' + routing.provider : '';
+  }
+
+  $('routingUpgrade').addEventListener('click', openPlus);
+  $('routingToggle').addEventListener('click', async () => {
+    const routing = sessionInfo?.smartRouting;
+    if (!routing?.available || !routing.eligible) return;
+    const enabled = !routing.enabled;
+    if (enabled && !window.confirm('Allow NOIR to share your prompts and relevant conversation history with these configured providers: ' + routing.providers.join(', ') + '? NOIR asks separately before routing browser page context.')) return;
+    $('routingToggle').disabled = true;
+    try {
+      const result = await api('/api/settings/smart-routing', {
+        method: 'POST', body: JSON.stringify({ enabled, consent: enabled, providers: routing.providers }),
+      });
+      updateSession(result.session);
+    } catch (error) {
+      $('routingHelp').textContent = error.message;
+    } finally {
+      $('routingToggle').disabled = !sessionInfo?.smartRouting?.eligible || !sessionInfo?.smartRouting?.available;
+    }
+  });
   $('settingsUpgradeButton').addEventListener('click', openPlus);
   $('plusClose').addEventListener('click', closePlus);
   $('plusDismiss').addEventListener('click', closePlus);
@@ -754,6 +786,7 @@
     const attachmentNames = pickedFiles.map(file => file.name);
     const userRow = options.regenerate || options.edit ? null : addMessage('user', value, null, '', true, attachmentNames);
     const typingRow = addTyping();
+    showRoutingResult('assistantRoutingStatus', null);
     $('welcome').hidden = true;
     try {
       const encodedAttachments = await Promise.all(pickedFiles.map(async file => ({
@@ -774,6 +807,7 @@
         if (options.edit) [...messages.querySelectorAll('.message.user')].at(-1)?.remove();
       }
       addMessage('assistant', result.chat.messages.at(-1).text);
+      showRoutingResult('assistantRoutingStatus', result.routing);
       updateChatSummary(result.chat);
       updateSession(result.session);
       if (sessionInfo?.provider.ready) showNotice('', false);
@@ -879,13 +913,18 @@
       readPage: url => api('/api/browser/read', { method: 'POST', body: JSON.stringify({ url, consent: true }) }),
       clearContext: id => api('/api/browser/context', { method: 'DELETE', body: JSON.stringify({ id }) }),
       async send(chatId, message, pageContextId) {
+        showRoutingResult('browserRoutingStatus', null);
+        const routing = sessionInfo?.smartRouting;
+        const routingPageConsent = Boolean(pageContextId && routing?.enabled &&
+          window.confirm('Allow NOIR to share the selected public page excerpts and relevant chat history for this reply with: ' + routing.providers.join(', ') + '? Choose Cancel to use your standard provider.'));
         const result = await api('/api/chat', {
           method: 'POST',
-          body: JSON.stringify({ chatId, message, pageContextId, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+          body: JSON.stringify({ chatId, message, pageContextId, routingPageConsent, routingConsentVersion: routing?.consentVersion, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
         });
         return result;
       },
-      onChat({ chat, session }) {
+      onChat({ chat, session, routing }) {
+        showRoutingResult('browserRoutingStatus', routing);
         updateChatSummary(chat);
         updateSession(session);
       },

@@ -99,6 +99,7 @@
           <button class="suggestion" data-prompt="Help me plan a project step by step."><b>▤ &nbsp; Make a plan</b>Break a goal into steps</button>
         </div>
       </div>
+      <p id="assistantRoutingStatus" class="routing-status" role="status" hidden></p>
       <div class="messages" id="messages" aria-live="polite"></div>
     </section>
     <div class="composer-wrap">
@@ -172,6 +173,7 @@
           </div>
           <div class="browser-messages" id="browserMessages" role="log" aria-label="Browser conversation"></div>
           <p id="browserChatStatus" role="status"></p>
+          <p id="browserRoutingStatus" class="routing-status" role="status" hidden></p>
           <form class="browser-chat-form" id="browserChatForm">
             <textarea id="browserPrompt" rows="2" maxlength="12000" aria-label="Ask NOIR" placeholder="Ask NOIR…"></textarea>
             <button id="browserSend" type="submit">Send</button>
@@ -224,6 +226,9 @@
           <div class="settings-panel-title"><div><h3>Your plan</h3><p id="planStatusDescription">You’re using NOIR Free.</p></div></div>
           <div class="plan-status-card"><span class="plan-status-icon">✦</span><div><b id="settingsPlanName">NOIR Free</b><small id="settingsPlanDetail">Free daily usage applies.</small></div></div>
           <div class="plan-settings-actions"><button type="button" class="plus-button" id="settingsUpgradeButton">Get NOIR Plus · $15 AUD/month</button><button type="button" class="manage-button" id="settingsManageButton" hidden>Manage subscription</button></div>
+          <div class="setting-switch-row"><span class="setting-option-copy"><b>Smart AI Routing</b><small>Automatically switch to another available AI provider when your current provider encounters a supported usage limit or temporary outage.</small></span><button type="button" class="setting-switch" id="routingToggle" role="switch" aria-checked="false" aria-label="Smart AI Routing"><span></span></button></div>
+          <p class="plan-fair-use" id="routingHelp" role="status"></p>
+          <button type="button" class="manage-button" id="routingUpgrade" hidden>Get NOIR Plus</button>
           <p class="plan-fair-use">Plus removes NOIR’s daily quota and per-account message cap. AI provider quotas, safety systems, and service-wide fair-use safeguards still apply.</p>
         </section>
         <section class="settings-panel" data-settings-panel="connectors" hidden>

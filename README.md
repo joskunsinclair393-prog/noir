@@ -1,6 +1,6 @@
 # NOIR
 
-NOIR is an open-source chat app with a Node.js backend. It can use Google Gemini, OpenAI, or Groq, supports required account sign-in for a public deployment, keeps chats separated by account, and keeps provider keys out of browser code.
+NOIR is an open-source chat app with a Node.js backend. It can use Google Gemini, OpenAI, Anthropic Claude, DeepSeek, Mistral AI, or xAI Grok, supports required account sign-in for a public deployment, keeps chats separated by account, and keeps provider keys out of browser code.
 
 ## Product direction
 
@@ -54,17 +54,16 @@ Stop the server with **Ctrl+C** in Terminal.
 
 The website does not need redesigning to switch providers. Change `AI_PROVIDER`, `AI_MODEL`, and the matching key in `.env`, then restart the server.
 
-### Groq
+### Other text providers
 
-Set:
+Set `AI_MODEL` to an API model enabled for your account and use the corresponding server-side key.
 
-```dotenv
-AI_PROVIDER=groq
-AI_MODEL=llama-3.3-70b-versatile
-GROQ_API_KEY=your_key_here
-```
+- `AI_PROVIDER=anthropic` with `ANTHROPIC_API_KEY`
+- `AI_PROVIDER=deepseek` with `DEEPSEEK_API_KEY`
+- `AI_PROVIDER=mistral` with `MISTRAL_API_KEY` ([Mistral API](https://docs.mistral.ai/api/endpoint/chat))
+- `AI_PROVIDER=xai` with `XAI_API_KEY` ([xAI API](https://docs.x.ai/developers/rest-api-reference/inference/responses))
 
-Create a key in the [Groq Console](https://console.groq.com/keys). Groq offers a free tier with rate limits; moving to its paid Developer tier requires a payment method. Check the current [rate limits](https://console.groq.com/docs/rate-limits). NOIR sends Groq requests only when `ALLOW_BILLABLE_REQUESTS=true`; that switch permits API calls but does not add a payment method or upgrade the Groq account.
+If migrating from Groq, set the replacement provider, model and backend key before deploying. Remove the old Groq entry from `SMART_AI_ROUTING` and retain at least two configured providers if using routing. Reapply the routing SQL to update its provider allowlist.
 
 ### Google Gemini
 
@@ -189,7 +188,7 @@ If you open `index.html` by double-clicking it, the browser uses a `file://` add
 - `index.html` — NOIR chat interface
 - `styles.css` — dark and light themes, responsive layout
 - `script.js` — browser UI and same-origin API calls
-- `server.js` — Node server, Gemini/OpenAI/Groq adapters, file analysis, optional Brave Search, account sign-in checks, chats, usage and credits
+- `server.js` — Node server, server-side AI provider adapters, file analysis, optional Brave Search, account sign-in checks, chats, usage and credits
 - `supabase/schema.sql` — private PostgreSQL table for durable account data
 - `render.yaml` — free Render web service Blueprint
 - `.env.example` — safe configuration template (copy to `.env`)
@@ -216,3 +215,17 @@ zip -r NOIR.zip index.html styles.css script.js server.js package.json .env.exam
 ```
 
 The command excludes your private `.env`, local chat database, and `.git` history.
+
+## NOIR Plus Smart AI Routing
+
+Smart AI Routing is optional and uses the existing NOIR Plus subscription. An account must have verified active subscription status and an unexpired billing period. A scheduled cancellation remains active until the paid period ends. Trial and expired subscriptions cannot enable routing.
+
+1. Apply `supabase/smart-routing.sql` to the Supabase project used by NOIR.
+2. Keep `AUTH_REQUIRED=true` and configure the existing Supabase service-role secret on the backend. Review official API pricing and rate limits before enabling any additional provider. Only enable `ALLOW_BILLABLE_REQUESTS=true` after approval.
+3. Add the keys for the providers you choose in Render Environment or local `.env`. Supported keys are `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` `MISTRAL_API_KEY`, and `XAI_API_KEY`. Use official API credentials.
+4. Set `SMART_AI_ROUTING` to a JSON object with positive integers `userMonthlyMicros`, `userMonthlyAttempts`, and `requestMicros` plus an ordered `providers` list of two to six entries. Each entry needs an `id` (`openai`, `deepseek`, `anthropic`, `gemini`, `mistral`, or `xai`), a currently supported text `model`, `contextTokens`, `inputPerMillion`, `outputPerMillion`, `monthlyMicros`, and `monthlyAttempts`. Order sets priority. Remove a provider to disable it. Set prices as USD micros per million tokens and budgets as USD micros (one dollar equals 1,000,000 micros). Use conservative upper-bound prices for the selected models, including cache or reasoning charges where applicable. Set provider-side budgets and alerts independently.
+5. In Settings → Your plan, turn on Smart AI Routing and review the provider list. An added or removed provider requires renewed consent.
+
+The database reserves estimated maximum costs before sending each attempt, including failures. Reservations are retained and reset monthly in UTC. The request cap covers both attempts combined. The ledger records reservations rather than invoice totals. Server logs record provider, outcome, actual token counts when available, and estimated cost without chat content or credentials. `MAX_REQUESTS_PER_MINUTE` limits routed attempts per account. Standard chat and externally billed browsing tools are outside this ledger.
+
+Routing applies to text generation. Attachments stay with the standard provider. Browser research can reuse already collected excerpts when the user consents for that reply. Provider changes never rerun site visits. Requests with ambiguous transport failures after dispatch are not retried. The switch notice appears with the completed response. Clear `SMART_AI_ROUTING` to disable the feature.
