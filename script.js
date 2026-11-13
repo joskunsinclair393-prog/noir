@@ -206,14 +206,6 @@
     $('plusManage').hidden = !manageAvailable;
     $('settingsUpgradeButton').hidden = isPlus;
     $('plusCheckout').hidden = isPlus;
-    const routing = data.smartRouting;
-    $('routingToggle').disabled = !routing?.eligible || !routing.available;
-    $('routingToggle').classList.toggle('is-on', Boolean(routing?.enabled));
-    $('routingToggle').setAttribute('aria-checked', String(Boolean(routing?.enabled)));
-    $('routingUpgrade').hidden = isPlus;
-    $('routingHelp').textContent = !isPlus
-      ? 'Automatic AI switching is available with NOIR Plus. Upgrade to keep using supported AI providers when one becomes unavailable.'
-      : routing?.available ? 'Configured providers: ' + routing.providers.join(', ') + '. Usage limits apply.' : 'Smart AI Routing is awaiting provider setup.';
     $('profileDailyUsage').hidden = isPlus || !data.dailyTokenLimit;
     $('profileDailyUsage').textContent = !isPlus && data.dailyTokenLimit ? `Today: ${numberFormat.format(data.dailyTokens || 0)} / ${numberFormat.format(data.dailyTokenLimit)} tokens` : '';
 
@@ -669,24 +661,6 @@
     status.textContent = routing ? (routing.switched ? 'Switched AI provider to continue your request. ' : '') + 'AI provider: ' + routing.provider : '';
   }
 
-  $('routingUpgrade').addEventListener('click', openPlus);
-  $('routingToggle').addEventListener('click', async () => {
-    const routing = sessionInfo?.smartRouting;
-    if (!routing?.available || !routing.eligible) return;
-    const enabled = !routing.enabled;
-    if (enabled && !window.confirm('Allow NOIR to share your prompts and relevant conversation history with these configured providers: ' + routing.providers.join(', ') + '? NOIR asks separately before routing browser page context.')) return;
-    $('routingToggle').disabled = true;
-    try {
-      const result = await api('/api/settings/smart-routing', {
-        method: 'POST', body: JSON.stringify({ enabled, consent: enabled, providers: routing.providers }),
-      });
-      updateSession(result.session);
-    } catch (error) {
-      $('routingHelp').textContent = error.message;
-    } finally {
-      $('routingToggle').disabled = !sessionInfo?.smartRouting?.eligible || !sessionInfo?.smartRouting?.available;
-    }
-  });
   $('settingsUpgradeButton').addEventListener('click', openPlus);
   $('plusClose').addEventListener('click', closePlus);
   $('plusDismiss').addEventListener('click', closePlus);
