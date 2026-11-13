@@ -163,7 +163,7 @@
           <div class="browser-page-controls">
             <button type="button" id="browserReadPage" disabled>Read Current Page</button>
             <button type="button" id="browserExplore" disabled>Explore Website</button>
-            <button type="button" id="browserCancelExplore" hidden>Cancel exploration</button>
+            <button type="button" id="browserCancelExplore" hidden>Stop</button>
             <p id="browserExploreStatus" role="status"></p>
             <ol id="browserExploreProgress" aria-label="Pages checked" hidden></ol>
             <button type="button" id="browserClearContext" hidden>Clear Page Context</button>
@@ -175,6 +175,7 @@
           <form class="browser-chat-form" id="browserChatForm">
             <textarea id="browserPrompt" rows="2" maxlength="12000" aria-label="Ask NOIR" placeholder="Ask NOIR…"></textarea>
             <button id="browserSend" type="submit">Send</button>
+            <button id="browserResearch" type="button" title="Search and read public websites to answer this prompt">Research</button>
           </form>
         </aside>
       </div>

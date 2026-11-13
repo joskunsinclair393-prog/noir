@@ -146,7 +146,7 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
   $('browserClearContext').addEventListener('click', clearConversation);
   $('browserReadPage').addEventListener('click', async () => {
     const entry = entries[index];
-    if (!entry || entry.search || !confirm('Allow NOIR to read this public URL and use its text for AI replies in this sidebar?')) return;
+    if (exploring || !entry || entry.search || !confirm('Allow NOIR to read this public URL and use its text for AI replies in this sidebar?')) return;
     clearConversation();
     contextOrigin = new URL(entry.url).origin;
     const attempt = reading;
@@ -170,21 +170,25 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
     }
   });
   $('browserCancelExplore').addEventListener('click', () => {
-    forgetPage();
-    $('browserExploreStatus').textContent = 'Exploration cancelled.';
+    clearConversation();
+    $('browserExploreStatus').textContent = 'Research stopped.';
   });
 
-  $('browserExplore').addEventListener('click', async () => {
+  async function startExploration(research) {
     const entry = entries[index];
     const prompt = $('browserPrompt');
     const question = prompt.value.trim() || 'Summarize the important information on this website.';
-    if (!entry || entry.search || exploring || pending) return;
+    if ((!research && (!entry || entry.search)) || exploring || pending) return;
+    if (research && !prompt.value.trim()) { prompt.focus(); return; }
     if (question.length > 1200) {
       $('browserExploreStatus').textContent = 'Use a question under 1,200 characters for exploration.';
       return;
     }
-    const origin = new URL(entry.url).origin;
-    if (!confirm('Allow NOIR to explore up to five public pages on ' + origin + ' and send relevant excerpts to the AI to answer your question?')) return;
+    const origin = entry && !entry.search ? new URL(entry.url).origin : null;
+    const permission = research
+      ? 'Allow NOIR to send your query to Brave Search when needed, read up to five public pages, and send relevant excerpts to the AI?'
+      : 'Allow NOIR to explore up to five public pages on ' + origin + ' and send relevant excerpts to the AI?';
+    if (!confirm(permission)) return;
     clearConversation();
     contextOrigin = origin;
     exploring = true;
@@ -195,7 +199,7 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
     $('browserCancelExplore').hidden = false;
     status.textContent = 'Checking website permissions…';
     try {
-      const { id } = await explore(entry.url, question);
+      const { id } = await explore(entry && !entry.search ? entry.url : '', question, research);
       if (attempt !== reading) { await cancelExploration(id); return; }
       jobId = id;
       while (attempt === reading) {
@@ -207,14 +211,16 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
           return row;
         }));
         list.hidden = !result.progress.length;
-        if (result.status === 'failed') throw new Error('NOIR could not read permitted public pages on this website.');
+        if (result.status === 'failed') throw new Error(result.error || 'NOIR could not read permitted public pages on this website.');
         if (result.status === 'complete') {
           page = result.context;
-          jobId = null;
           $('browserClearContext').hidden = false;
           status.textContent = 'Read ' + page.sources.length + ' page(s). ' + page.failed + ' unavailable.';
           prompt.value = question;
-          $('browserChatForm').requestSubmit();
+          status.textContent += ' Preparing answer…';
+          await sendBrowserMessage();
+          if (attempt === reading) status.textContent = 'Read ' + page.sources.length + ' page(s). ' + page.failed + ' unavailable.';
+          jobId = null;
           return;
         }
         status.textContent = 'Exploring public pages…';
@@ -225,7 +231,9 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
     } finally {
       if (attempt === reading) stopExploration();
     }
-  });
+  }
+  $('browserExplore').addEventListener('click', () => startExploration(false));
+  $('browserResearch').addEventListener('click', () => startExploration(true));
   frame.addEventListener('error', () => {
     $('browserEmbedStatus').textContent = 'This site could not be shown in the viewer. Open it in a new tab to continue.';
   });
@@ -265,8 +273,7 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
   }
 
   $('browserClear').addEventListener('click', clearConversation);
-  $('browserChatForm').addEventListener('submit', async event => {
-    event.preventDefault();
+  async function sendBrowserMessage() {
     const prompt = $('browserPrompt');
     const message = prompt.value.trim();
     if (!message || pending || (exploring && !page)) return;
@@ -297,6 +304,10 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
       setPending(false);
       $('browserChatStatus').textContent = error.message;
     }
+  }
+  $('browserChatForm').addEventListener('submit', event => {
+    event.preventDefault();
+    void sendBrowserMessage();
   });
 
   return {
