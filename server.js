@@ -220,6 +220,7 @@ function publicError(error) {
     if (error.status === 401 || error.status === 403) return { status: 502, message: 'The provider rejected this API key or model. Check your key, model name, and provider account access.', code: 'provider_auth' };
     return { status: 502, message: 'The AI provider could not complete this request. Check the provider status and try again.', code: 'provider_error' };
   }
+  if (error.code === 'ai_response_timeout') return { status: 504, message: error.message, code: error.code };
   if (error.status === 400 || error.status === 401 || error.status === 404 || error.status === 413 || error.status === 429 || error.status === 402 || error.status === 403 || error.status === 503) {
     return { status: error.status, message: error.message, code: error.code, details: error.details };
   }
@@ -281,6 +282,7 @@ export function createNoirServer(options = {}) {
     startingCredits: integer(env.startingCredits ?? process.env.STARTING_CREDITS, 100),
     creditsPerMessage: integer(env.creditsPerMessage ?? process.env.CREDITS_PER_MESSAGE, 1, 1),
     unlimitedAccessEmails: new Set(String(env.unlimitedAccessEmails ?? process.env.UNLIMITED_ACCESS_EMAILS ?? '').split(',').map(email => email.trim().toLowerCase()).filter(Boolean)),
+    chatResponseTimeoutMs: Math.min(120_000, integer(env.chatResponseTimeoutMs ?? process.env.CHAT_RESPONSE_TIMEOUT_MS, 55_000, 1_000)),
     maxOutputTokens: integer(env.maxOutputTokens ?? process.env.MAX_OUTPUT_TOKENS, 1024, 64),
     dailyTokenLimit: integer(env.dailyTokenLimit ?? process.env.MAX_DAILY_TOKENS, 0, 0),
     reasoningEffort: String(env.reasoningEffort ?? process.env.OPENAI_REASONING_EFFORT ?? ''),
@@ -1101,7 +1103,7 @@ export function createNoirServer(options = {}) {
             if (pageContext && !desktopContext && (taskSignal?.aborted || pageContexts.get(body.pageContextId) !== pageContext || pageContext.expires <= Date.now())) {
               throw Object.assign(new Error('Page context was cleared or expired. Read the page again.'), { status: 404 });
             }
-            const deadline = AbortSignal.timeout(20000);
+            const deadline = AbortSignal.timeout(config.chatResponseTimeoutMs);
             const signal = taskSignal ? AbortSignal.any([taskSignal, deadline]) : deadline;
             let generated;
             const routingUser = routing.enabled && !attachments.length && !chat.messages.some(item => item.attachments?.length)
@@ -1113,7 +1115,7 @@ export function createNoirServer(options = {}) {
               if (!signal.aborted) throw error;
             }
             if (signal.aborted) {
-              throw Object.assign(new Error(taskSignal?.aborted ? 'Research was stopped.' : 'The AI response timed out. Try again.'), { status: taskSignal?.aborted ? 400 : 503 });
+              throw Object.assign(new Error(taskSignal?.aborted ? 'Research was stopped.' : 'NOIR took too long to respond. Please try again.'), { status: taskSignal?.aborted ? 400 : 504, code: taskSignal?.aborted ? 'research_stopped' : 'ai_response_timeout' });
             }
             if (pageContext?.pages) {
               generated.text += '\n\nPages checked:\n' + pageContext.pages.map(page => page.url).join('\n');

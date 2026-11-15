@@ -260,7 +260,6 @@
 
   function updateSession(data) {
     sessionInfo = data;
-    if (desktopBridge) $('desktopChatProvider').textContent = data.provider?.label || '';
     const usage = data.usage || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     $('profileLifetimeTokens').textContent = numberFormat.format(usage.totalTokens || 0);
     $('profileDailyTokens').textContent = numberFormat.format(data.dailyTokens || 0);
@@ -752,12 +751,6 @@
   document.querySelectorAll('[data-open-settings]').forEach(button => button.addEventListener('click', () => openSettings(button.dataset.openSettings)));
   document.querySelectorAll('[data-settings-tab]').forEach(tab => tab.addEventListener('click', () => openSettings(tab.dataset.settingsTab)));
   $('profilePlanAction').addEventListener('click', openPlus);
-  function showRoutingResult(id, routing) {
-    const status = $(id);
-    status.hidden = !routing;
-    status.textContent = routing ? (routing.switched ? 'Switched AI provider to continue your request. ' : '') + 'AI provider: ' + routing.provider : '';
-  }
-
   $('settingsUpgradeButton').addEventListener('click', openPlus);
   $('plusClose').addEventListener('click', closePlus);
   $('plusDismiss').addEventListener('click', closePlus);
@@ -865,7 +858,6 @@
     const attachmentNames = pickedFiles.map(file => file.name);
     const userRow = options.regenerate || options.edit ? null : addMessage('user', value, null, '', true, attachmentNames);
     const typingRow = addTyping();
-    showRoutingResult('assistantRoutingStatus', null);
     $('welcome').hidden = true;
     try {
       const encodedAttachments = await Promise.all(pickedFiles.map(async file => ({
@@ -890,10 +882,8 @@
         if (options.edit) [...messages.querySelectorAll('.message.user')].at(-1)?.remove();
       }
       addMessage('assistant', result.chat.messages.at(-1).text);
-      showRoutingResult('assistantRoutingStatus', result.routing);
       updateChatSummary(result.chat);
       updateSession(result.session);
-      if (desktopBridge && result.routing?.provider) $('desktopChatProvider').textContent = result.routing.provider;
       if (sessionInfo?.provider.ready) showNotice('', false);
       clearDraft();
       editingLastMessage = false;
@@ -909,8 +899,7 @@
       sending = false;
       $('send').disabled = false;
       input.disabled = false;
-      if (failed && options.edit) input.value = value;
-      else input.value = failed && options.homepage ? value : '';
+      if (!options.regenerate) input.value = failed ? value : '';
       resize();
       if (!options.regenerate && $('limitBackdrop').hidden) input.focus({ preventScroll: true });
     }
@@ -998,7 +987,6 @@
       readPage: url => api('/api/browser/read', { method: 'POST', body: JSON.stringify({ url, consent: true }) }),
       clearContext: id => api('/api/browser/context', { method: 'DELETE', body: JSON.stringify({ id }) }),
       async send(chatId, message, pageContextId) {
-        showRoutingResult('browserRoutingStatus', null);
         const routing = sessionInfo?.smartRouting;
         const routingPageConsent = Boolean(pageContextId && routing?.enabled &&
           window.confirm('Allow NOIR to share the selected public page excerpts and relevant chat history for this reply with: ' + routing.providers.join(', ') + '? Choose Cancel to use your standard provider.'));
@@ -1008,8 +996,7 @@
         });
         return result;
       },
-      onChat({ chat, session, routing }) {
-        showRoutingResult('browserRoutingStatus', routing);
+      onChat({ chat, session }) {
         updateChatSummary(chat);
         updateSession(session);
       },

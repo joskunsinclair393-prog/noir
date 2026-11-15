@@ -762,11 +762,7 @@ body.light-theme :is(.browser-view,.view-switch) {
 #browserExploreProgress { max-height:100px; overflow:auto; padding-inline-start:20px; }
 .browser-messages article a { display:block; color:var(--noir-text); font-size:12px; overflow-wrap:anywhere; margin-top:5px; }
 
-.routing-status {
-  font-size: 0.8rem;
-  margin: 0.45rem 1rem;
-  color: inherit;
-}
+
 
 .browser-desktop-download {
   display: inline-block;
@@ -817,5 +813,3 @@ body.light-theme :is(.browser-view,.view-switch) {
 .desktop-full-chat .topbar { justify-content: center; }
 .desktop-full-chat.desktop-history-open .app > .sidebar { width: min(330px, 100%); }
 
-#desktopChatProvider { display: none; }
-.desktop-full-chat #desktopChatProvider { display: block; margin-inline: 8px; font-size: 11px; opacity: .75; }

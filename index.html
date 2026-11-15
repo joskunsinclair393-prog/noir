@@ -62,7 +62,6 @@
     <header class="topbar">
       <div class="desktop-chat-header" hidden>
         <img src="logo.svg" alt=""><div><b>NOIR AI</b><span id="desktopChatTitle">New conversation</span></div>
-        <small id="desktopChatProvider"></small>
         <button type="button" id="desktopChatNew" aria-label="New chat" title="New chat">＋</button>
         <button type="button" id="desktopChatHistory" aria-label="Chat history" title="Chat history" aria-expanded="false">◷</button>
         <button type="button" id="desktopChatClose" aria-label="Close NOIR AI" title="Close NOIR AI">×</button>
@@ -107,7 +106,6 @@
           <button class="suggestion" data-prompt="Help me plan a project step by step."><b>▤ &nbsp; Make a plan</b>Break a goal into steps</button>
         </div>
       </div>
-      <p id="assistantRoutingStatus" class="routing-status" role="status" hidden></p>
       <div class="messages" id="messages" aria-live="polite"></div>
     </section>
     <div class="composer-wrap">
@@ -207,7 +205,6 @@
           </div>
           <div class="browser-messages" id="browserMessages" role="log" aria-label="Browser conversation"></div>
           <p id="browserChatStatus" role="status"></p>
-          <p id="browserRoutingStatus" class="routing-status" role="status" hidden></p>
           <form class="browser-chat-form" id="browserChatForm">
             <textarea id="browserPrompt" rows="2" maxlength="12000" aria-label="Ask NOIR" placeholder="Ask NOIR…"></textarea>
             <button id="browserSend" type="submit">Send</button>
