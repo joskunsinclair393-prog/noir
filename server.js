@@ -695,7 +695,7 @@ export function createNoirServer(options = {}) {
         headers: { apikey: config.supabaseServiceRoleKey, authorization: 'Bearer ' + config.supabaseServiceRoleKey, 'content-type': 'application/json' },
         body: JSON.stringify({
           p_user: user.id, p_provider: provider.id, p_cost: cost,
-          p_user_cap: routingConfig.userMonthlyMicros, p_user_attempts: routingConfig.userMonthlyAttempts,
+          p_user_cap: routingConfig.userMonthlyMicros, p_user_attempts: Number.MAX_SAFE_INTEGER,
           p_provider_cap: provider.monthlyMicros, p_provider_attempts: provider.monthlyAttempts,
           p_minute_attempts: config.maxRequestsPerMinute,
         }),
