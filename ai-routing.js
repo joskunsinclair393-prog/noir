@@ -100,14 +100,24 @@ export async function routeGeneration({ config, args, reserve, generate, signal 
   const input = Buffer.byteLength(args.instructions) + args.messages.reduce((sum, message) => sum + Buffer.byteLength(message.text) + 64, 256);
   for (const provider of config.providers) {
     signal.throwIfAborted();
-    if (input + args.maxOutputTokens > provider.contextTokens) continue;
-    const cost = Math.ceil((input * provider.inputPerMillion + args.maxOutputTokens * provider.outputPerMillion) / 1_000_000);
-    if (spent + cost > config.requestMicros) continue;
-    if (!await reserve(provider, cost)) continue;
+    const maxOutputTokens = Math.min(args.maxOutputTokens, provider.contextTokens - input);
+    if (maxOutputTokens < Math.min(args.maxOutputTokens, 128)) continue;
+    const sizes = [...new Set([maxOutputTokens, Math.min(256, maxOutputTokens), Math.min(128, maxOutputTokens)])];
+    let reservation;
+    for (const size of sizes) {
+      signal.throwIfAborted();
+      const cost = Math.ceil((input * provider.inputPerMillion + size * provider.outputPerMillion) / 1_000_000);
+      if (spent + cost <= config.requestMicros && await reserve(provider, cost)) {
+        reservation = { size, cost };
+        break;
+      }
+    }
+    if (!reservation) continue;
     attempts++;
+    const { cost, size } = reservation;
     spent += cost;
     try {
-      const answer = await generate(provider, args);
+      const answer = await generate(provider, { ...args, maxOutputTokens: size });
       console.info('[NOIR routing]', provider.id, 'success', answer.usage.inputTokens, answer.usage.outputTokens, cost);
       return { ...answer, routing: { provider: provider.label, switched: attempts > 1 } };
     } catch (error) {
@@ -116,5 +126,5 @@ export async function routeGeneration({ config, args, reserve, generate, signal 
           !['UND_ERR_CONNECT_TIMEOUT', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND'].includes(error.cause?.code)) throw error;
     }
   }
-  throw Object.assign(new Error(attempts ? 'NOIR could not get a reply from the available AI providers. Try again shortly.' : 'No compatible Smart Routing provider is available within the configured usage limits. You can turn Smart AI Routing off in Settings.'), { status: attempts ? 503 : 429, code: attempts ? 'routing_unavailable' : 'routing_limit' });
+  throw Object.assign(new Error(attempts ? 'NOIR could not get a reply from the available AI providers. Try again shortly.' : 'NOIR could not fit a reply within the current AI usage limits. Try a shorter message or a new chat. If your quota is exhausted, try again after it resets.'), { status: attempts ? 503 : 429, code: attempts ? 'routing_unavailable' : 'routing_limit' });
 }

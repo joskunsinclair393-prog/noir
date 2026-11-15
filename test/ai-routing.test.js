@@ -51,3 +51,25 @@ test('text adapters submit text to official endpoints and report actual usage', 
     assert.deepEqual(result, { text: 'Answer', usage: { ...answer.usage, totalTokens: 32 } });
   }
 });
+
+test('tries a shorter reply when the full reply cannot be reserved', async () => {
+  const costs = [];
+  let calls = 0;
+  const result = await route({
+    config: { ...config, providers: [provider('gemini')] },
+    args: { ...args, maxOutputTokens: 1024 },
+    reserve: async (_provider, cost) => {
+      costs.push(cost);
+      return costs.length === 2;
+    },
+    generate: async (_provider, request) => {
+      calls++;
+      assert.equal(request.maxOutputTokens, 256);
+      assert.equal(request.messages, args.messages);
+      return answer;
+    },
+  });
+  assert.equal(calls, 1);
+  assert.ok(costs[1] < costs[0]);
+  assert.equal(result.text, answer.text);
+});
