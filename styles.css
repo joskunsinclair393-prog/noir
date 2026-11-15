@@ -820,3 +820,8 @@ body.light-theme :is(.browser-view,.view-switch) {
 #connectorManager button { border: 1px solid currentColor; border-color: color-mix(in srgb, currentColor 26%, transparent); border-radius: 6px; color: inherit; background: transparent; padding: 6px 9px; margin: 2px; cursor: pointer; }
 #connectorManager button:disabled { opacity: .55; cursor: default; }
 #connectorManagerOutput { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14rem; overflow: auto; }
+
+.model-tools { max-width: 800px; margin: 0 auto 7px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.model-tools select, .model-tools button { background: transparent; color: inherit; border: 1px solid color-mix(in srgb,currentColor 22%,transparent); border-radius: 7px; padding: 5px 8px; font: inherit; font-size: 12px; }
+.model-tools select option { background: Canvas; color: CanvasText; }
+.model-tools small { font-size: 11px; opacity: .75; }

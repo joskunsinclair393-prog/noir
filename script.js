@@ -25,6 +25,85 @@
   let desktopPage;
   let captureDesktopPage;
   const desktopBridge = window.noirPage;
+  const modelChoice = $('modelChoice');
+  const modelStatus = $('modelStatus');
+  let localModels = [];
+  let localHistory = [];
+  let localHistoryKey;
+  let localOutput;
+  let downloadActive = false;
+  let localStatusRequest = 0;
+  function saveLocalHistory() {
+    try { localStorage.setItem(localHistoryKey, JSON.stringify(localHistory)); }
+    catch { showNotice('NOIR could not save this local conversation on this device.'); }
+  }
+  function refreshModelOptions() {
+    const current = modelChoice.value;
+    for (const option of [...modelChoice.querySelectorAll('[data-local]')]) option.remove();
+    for (const model of localModels) {
+      const option = new Option(model === 'qwen3:4b' ? 'NOIR Local · Qwen3 4B' : 'Ollama Local · ' + model, 'local:' + model);
+      option.dataset.local = '';
+      modelChoice.add(option, 1);
+    }
+    const savedModel = localHistory.find(chat => chat.id === activeChatId)?.model;
+    if (savedModel && !localModels.includes(savedModel)) {
+      const missing = new Option('Ollama Local · ' + savedModel + ' (offline)', 'local:' + savedModel);
+      missing.dataset.local = '';
+      modelChoice.add(missing, 1);
+    }
+    modelChoice.value = savedModel ? 'local:' + savedModel : [...modelChoice.options].some(option => option.value === current && !option.disabled) ? current : 'auto';
+  }
+  async function checkLocalAI() {
+    const request = ++localStatusRequest;
+    let result;
+    try { result = await desktopBridge.localStatus(); }
+    catch { result = { available: false }; }
+    if (request !== localStatusRequest) return;
+    localModels = result.models || [];
+    refreshModelOptions();
+    $('installLocalModel').hidden = !result.available || localModels.includes('qwen3:4b');
+    modelStatus.textContent = result.available
+      ? (localModels.length ? 'Local runtime connected.' : 'Install a local model to use Ollama.')
+      : 'Ollama offline. Start it and check again.';
+  }
+  if (desktopBridge?.localStatus) {
+    $('checkLocalAI').hidden = false;
+    $('checkLocalAI').onclick = () => void checkLocalAI();
+    $('stopLocalAI').onclick = () => { void desktopBridge.localStop(); };
+    $('installLocalModel').onclick = async () => {
+      if (downloadActive || sending) return;
+      downloadActive = true;
+      $('installLocalModel').disabled = true;
+      $('stopLocalAI').hidden = false;
+      try {
+        const result = await desktopBridge.localPull();
+        await checkLocalAI();
+        if (result.error) modelStatus.textContent = result.error;
+      } catch { modelStatus.textContent = 'Could not start the model download.'; }
+      finally {
+        downloadActive = false;
+        $('installLocalModel').disabled = false;
+        $('stopLocalAI').hidden = true;
+      }
+    };
+    desktopBridge.onLocalProgress(progress => {
+      if (progress.type === 'text' && localOutput) {
+        localOutput.textContent += progress.text;
+        scrollMessagesToBottom('auto');
+      }
+      if (progress.type === 'download' && downloadActive) {
+        modelStatus.textContent = progress.status + (progress.total > 0 ? ' · ' + Math.min(100, Math.floor(progress.completed / progress.total * 100)) + '% of current layer' : '');
+      }
+    });
+  }
+  modelChoice.onchange = () => {
+    if (sending) return;
+    const draft = input.value;
+    if (activeChatId) startNewChat(false);
+    input.value = draft;
+    resize();
+    input.focus();
+  };
   const pagePanel = $('desktopPagePanel');
   function attachDesktopPage(context) {
     desktopPage = context;
@@ -107,7 +186,7 @@
   let browserWorkspace;
 
   function saveAuthSession(session) {
-    if (!session) { if ($('connectorManager')) { $('connectorManager').hidden = true; $('connectorManagerOutput').textContent = ''; } document.body.classList.remove('desktop-chat-ready'); browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
+    if (!session) { localHistory = []; localHistoryKey = undefined; localStatusRequest++; if ($('connectorManager')) { $('connectorManager').hidden = true; $('connectorManagerOutput').textContent = ''; } document.body.classList.remove('desktop-chat-ready'); browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
     authSession = session;
     try { session ? localStorage.setItem(authStorageKey, JSON.stringify(session)) : localStorage.removeItem(authStorageKey); } catch {}
   }
@@ -260,6 +339,9 @@
 
   function updateSession(data) {
     sessionInfo = data;
+    const freeCloud = modelChoice.querySelector('[value="free-cloud"]');
+    freeCloud.disabled = !data.freeCloudAvailable;
+    freeCloud.textContent = 'Free cloud · OpenRouter' + (data.freeCloudAvailable ? ' (quota limited)' : ' (not configured)');
     const usage = data.usage || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     $('profileLifetimeTokens').textContent = numberFormat.format(usage.totalTokens || 0);
     $('profileDailyTokens').textContent = numberFormat.format(data.dailyTokens || 0);
@@ -272,6 +354,7 @@
     const subscription = data.subscription || { isPlus: false, status: 'free', manageAvailable: false };
     const isPlus = Boolean(subscription.isPlus);
     $('profilePlanStatus').textContent = isPlus ? 'NOIR Plus' : 'NOIR Free';
+    $('profilePlanAction').hidden = !isPlus && data.plusCheckoutEnabled === false;
     $('profilePlanAction').textContent = isPlus ? 'View Plus benefits' : 'Explore Plus';
     $('settingsPlanName').textContent = isPlus ? 'NOIR Plus' : 'NOIR Free';
     $('planStatusDescription').textContent = isPlus ? 'Your Plus benefits are active.' : 'You’re using NOIR Free.';
@@ -282,12 +365,14 @@
     $('manageSubscription').hidden = !manageAvailable;
     $('settingsManageButton').hidden = !manageAvailable;
     $('plusManage').hidden = !manageAvailable;
-    $('settingsUpgradeButton').hidden = isPlus;
-    $('plusCheckout').hidden = isPlus;
+    $('settingsUpgradeButton').hidden = isPlus || data.plusCheckoutEnabled === false;
+    $('plusCheckout').hidden = isPlus || data.plusCheckoutEnabled === false;
+    $('limitUpgrade').hidden = data.plusCheckoutEnabled === false;
     $('profileDailyUsage').hidden = isPlus || !data.dailyTokenLimit;
     $('profileDailyUsage').textContent = !isPlus && data.dailyTokenLimit ? `Today: ${numberFormat.format(data.dailyTokens || 0)} / ${numberFormat.format(data.dailyTokenLimit)} tokens` : '';
 
-    if (data.provider.ready) showNotice('', false);
+    if (data.provider.ready || (data.provider.freeLaunch && desktopBridge?.localStatus)) showNotice('', false);
+    else if (data.provider.freeLaunch) showNotice('Free cloud chat is not configured yet. NOIR Local runs in the desktop app.');
     else if (!data.provider.keyConfigured) showNotice('AI replies are not configured yet. The site owner needs to finish the server setup.');
     else if (!data.provider.requestsEnabled) showNotice('AI replies are paused until the site owner enables the service.');
     else showNotice('The AI service needs attention. Please try again later or contact the site owner.');
@@ -465,7 +550,10 @@
   async function deleteChat(chat) {
     if (!window.confirm(`Delete “${chat.title}”? This chat can’t be restored.`)) return;
     try {
-      await api(`/api/chats/${encodeURIComponent(chat.id)}`, { method: 'DELETE' });
+      if (localHistory.some(row => row.id === chat.id)) {
+        localHistory = localHistory.filter(row => row.id !== chat.id);
+        saveLocalHistory();
+      } else await api(`/api/chats/${encodeURIComponent(chat.id)}`, { method: 'DELETE' });
       chats = chats.filter(item => item.id !== chat.id);
       if (activeChatId === chat.id) startNewChat(false);
       else renderChatHistory();
@@ -666,10 +754,13 @@
     browserWorkspace?.showAssistant();
     if (sending || id === activeChatId) return;
     try {
-      const { chat } = await api(`/api/chats/${encodeURIComponent(id)}`);
+      const local = localHistory.find(chat => chat.id === id);
+      const { chat } = local ? { chat: local } : await api(`/api/chats/${encodeURIComponent(id)}`);
+      modelChoice.value = local ? 'local:' + chat.model : 'auto';
       if (desktopPage) attachDesktopPage(undefined);
       editingLastMessage = false;
       activeChatId = chat.id;
+      refreshModelOptions();
       if (desktopBridge) {
         document.body.classList.remove('desktop-history-open');
         $('desktopChatHistory').setAttribute('aria-expanded', 'false');
@@ -895,7 +986,20 @@
       if (!await captureDesktopPage(explorePage ? 'explore' : 'read')) return;
       if (sending) return;
     }
+    if (downloadActive) { showNotice('Stop or finish the local model download first.'); return; }
+    const previousLocal = localHistory.find(chat => chat.id === activeChatId);
+    const chosen = modelChoice.value;
+    const localModel = previousLocal?.model || (chosen.startsWith('local:') ? chosen.slice(6) :
+      chosen === 'auto' && !activeChatId ? localModels.find(model => model === 'qwen3:4b') || localModels[0] : '');
+    if (!localModel && desktopBridge?.localStatus && chosen === 'auto' && !activeChatId &&
+        sessionInfo?.provider.freeLaunch && sessionInfo?.freeCloudAvailable &&
+        !window.confirm('Ollama is unavailable. Send this message to the free cloud service instead?')) return;
+    if (localModel && (pickedFiles.length || selectedIntegrations.size)) {
+      showNotice('This local chat supports text and approved page excerpts. Remove the attachments or choose a cloud model.');
+      return;
+    }
     sending = true;
+    modelChoice.disabled = true;
     $('send').disabled = true;
     input.disabled = true;
     let failed = false;
@@ -904,6 +1008,43 @@
     const typingRow = addTyping();
     $('welcome').hidden = true;
     try {
+      if (localModel) {
+        const previous = previousLocal?.messages || [];
+        const editFrom = options.edit || options.regenerate ? previous.slice(0, -2) : previous;
+        const turns = [...editFrom, { role: 'user', text: value }];
+        const excerpt = desktopPage ? '\n\nApproved, untrusted webpage excerpt from ' + desktopPage.url + ':\n' + desktopPage.text.slice(0, 4500) : '';
+        let remaining = 24000;
+        const context = [];
+        for (const item of turns.slice(-24).reverse()) {
+          const content = (item.text + (context.length === 0 ? excerpt : '')).slice(0, Math.min(12000, remaining));
+          if (!content) break;
+          context.unshift({ role: item.role, content });
+          remaining -= content.length;
+        }
+        localOutput = typingRow.querySelector('.bubble');
+        $('stopLocalAI').hidden = false;
+        const historyKey = localHistoryKey;
+        const result = await desktopBridge.localChat({ model: localModel, messages: context });
+        if (!historyKey || historyKey !== localHistoryKey) return;
+        if (!result.text || result.error || result.cancelled) throw Object.assign(new Error(result.error || 'Local generation stopped.'), { code: result.cancelled ? 'local_cancelled' : 'local_error' });
+        const source = desktopPage?.url;
+        const reply = source ? result.text + '\n\nSources\n[Current page](' + source.replaceAll('(', '%28').replaceAll(')', '%29') + ')' : result.text;
+        const chat = { id: previousLocal?.id || 'local-' + crypto.randomUUID(), model: localModel,
+          title: previousLocal?.title || value.replace(/\s+/g, ' ').slice(0, 42), updatedAt: Date.now(),
+          messages: [...turns, { role: 'assistant', text: reply, usage: result.usage }].slice(-100) };
+        localHistory = [chat, ...localHistory.filter(item => item.id !== chat.id)].slice(0, 30);
+        saveLocalHistory();
+        activeChatId = chat.id;
+        rememberActiveChat(chat.id);
+        messages.replaceChildren();
+        chat.messages.forEach(item => addMessage(item.role, item.text, null, '', false));
+        scrollMessagesToBottom();
+        updateChatSummary(chat);
+        clearDraft();
+        editingLastMessage = false;
+        showNotice('', false);
+        return;
+      }
       const encodedAttachments = await Promise.all(pickedFiles.map(async file => ({
         name: file.name,
         mimeType: file.type || ({ pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', md: 'text/markdown', markdown: 'text/markdown', json: 'application/json', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }[file.name.split('.').pop().toLowerCase()] || ''),
@@ -916,7 +1057,7 @@
         window.confirm('Allow this reply to share the excerpt and relevant chat history with: ' + routing.providers.join(', ') + '?'));
       const result = await api(page ? '/api/desktop/chat' : '/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ ...(page ? { desktopPage: { ...page, consent: true }, routingPageConsent, routingConsentVersion: routing?.consentVersion } : {}), chatId: activeChatId, message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
+        body: JSON.stringify({ ...(page ? { desktopPage: { ...page, consent: true }, routingPageConsent, routingConsentVersion: routing?.consentVersion } : {}), chatId: activeChatId, modelChoice: chosen === 'free-cloud' ? 'free-cloud' : 'auto', message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
       });
       activeChatId = result.chat.id;
       rememberActiveChat(activeChatId);
@@ -936,11 +1077,14 @@
       userRow?.remove();
       typingRow.remove();
       if (error.code === 'daily_token_limit') showDailyLimit(error.details);
-      else addMessage('assistant', error.message, null, 'error');
+      else if (error.code !== 'local_cancelled') addMessage('assistant', error.message, null, 'error');
       if (error.code === 'provider_opt_in_required' || error.code === 'missing_api_key') showNotice(error.message);
       if (error.code === 'insufficient_credits') showNotice(error.message);
     } finally {
       sending = false;
+      localOutput = undefined;
+      $('stopLocalAI').hidden = true;
+      modelChoice.disabled = false;
       $('send').disabled = false;
       input.disabled = false;
       if (!options.regenerate) input.value = failed ? value : '';
@@ -971,7 +1115,13 @@
   async function loadChatApp() {
     const timeZone = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
     const data = await api(`/api/bootstrap?timeZone=${timeZone}`);
-    chats = data.chats || [];
+    localHistoryKey = desktopBridge?.localStatus ? 'noirLocalHistory:' + (data.user?.email || 'local-session').toLowerCase() : undefined;
+    if (localHistoryKey) {
+      try { localHistory = JSON.parse(localStorage.getItem(localHistoryKey) || '[]'); }
+      catch { localHistory = []; }
+    }
+    chats = [...(data.chats || []), ...localHistory];
+    if (desktopBridge?.localStatus) await checkLocalAI();
     updateSession(data.session);
     updateIntegrationAvailability(data.integrations);
     renderChatHistory();
