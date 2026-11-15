@@ -21,6 +21,8 @@
   let sessionInfo = null;
   let integrationsInfo = null;
   let sending = false;
+  let checkingModel = false;
+  let cloudReply;
   let editingLastMessage = false;
   let desktopPage;
   let captureDesktopPage;
@@ -66,10 +68,13 @@
       ? (localModels.length ? 'Local runtime connected.' : 'Install a local model to use Ollama.')
       : 'Ollama offline. Start it and check again.';
   }
+  $('stopLocalAI').onclick = () => {
+    if (cloudReply) cloudReply.abort();
+    else void desktopBridge?.localStop();
+  };
   if (desktopBridge?.localStatus) {
     $('checkLocalAI').hidden = false;
     $('checkLocalAI').onclick = () => void checkLocalAI();
-    $('stopLocalAI').onclick = () => { void desktopBridge.localStop(); };
     $('installLocalModel').onclick = async () => {
       if (downloadActive || sending) return;
       downloadActive = true;
@@ -97,7 +102,7 @@
     });
   }
   modelChoice.onchange = () => {
-    if (sending) return;
+    if (sending || checkingModel) return;
     const draft = input.value;
     if (activeChatId) startNewChat(false);
     input.value = draft;
@@ -186,6 +191,7 @@
   let browserWorkspace;
 
   function saveAuthSession(session) {
+    if (!session) cloudReply?.abort();
     if (!session) { localHistory = []; localHistoryKey = undefined; localStatusRequest++; if ($('connectorManager')) { $('connectorManager').hidden = true; $('connectorManagerOutput').textContent = ''; } document.body.classList.remove('desktop-chat-ready'); browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
     authSession = session;
     try { session ? localStorage.setItem(authStorageKey, JSON.stringify(session)) : localStorage.removeItem(authStorageKey); } catch {}
@@ -318,13 +324,38 @@
     showAuthScreen();
   });
 
-  async function api(path, options = {}) {
+  async function api(path, { onText, ...options } = {}) {
     const request = () => fetch(path, {
       credentials: 'same-origin', ...options,
       headers: { ...(options.body ? { 'content-type': 'application/json' } : {}), ...(authSession?.access_token ? { authorization: `Bearer ${authSession.access_token}` } : {}), ...(options.headers || {}) },
     });
     let response = await request();
-    if (response.status === 401 && path !== '/api/auth-config' && await refreshAuthSession()) response = await request();
+    if (response.status === 401 && path !== '/api/auth-config' && await refreshAuthSession()) {
+      options.signal?.throwIfAborted();
+      response = await request();
+    }
+    if (response.ok && onText && response.headers.get('content-type')?.startsWith('application/x-ndjson')) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (!line) continue;
+            const frame = JSON.parse(line);
+            if (frame.error) throw Object.assign(new Error(frame.error), frame);
+            if (frame.result) return frame.result;
+            if (typeof frame.text === 'string') onText(frame.text);
+          }
+        }
+        throw new Error('The response ended early. Please try again.');
+      } finally { await reader.cancel().catch(() => {}); }
+    }
     let data = {};
     try { data = await response.json(); } catch {}
     if (!response.ok) throw Object.assign(new Error(data.error || `Request failed (${response.status})`), { status: response.status, code: data.code, details: data.details });
@@ -971,7 +1002,7 @@
   }
 
   async function send(text = input.value, options = {}) {
-    if (sending) return;
+    if (sending || checkingModel) return;
     options = { ...options, edit: options.edit ?? (!options.regenerate && editingLastMessage) };
     let value = String(text || '').trim();
     if (!value && pickedFiles.length) value = 'Analyze the attached file(s) and summarize the key information.';
@@ -984,16 +1015,23 @@
       /\b(?:this|current|open) (?:web)?page\b/i.test(value);
     if (explorePage || readPage) {
       if (!await captureDesktopPage(explorePage ? 'explore' : 'read')) return;
-      if (sending) return;
+      if (sending || checkingModel) return;
     }
     if (downloadActive) { showNotice('Stop or finish the local model download first.'); return; }
+    if (desktopBridge?.localStatus && modelChoice.value === 'auto' && !activeChatId) {
+      checkingModel = true;
+      try { await checkLocalAI(); }
+      finally { checkingModel = false; }
+      if (sending || downloadActive || app.hidden) return;
+    }
     const previousLocal = localHistory.find(chat => chat.id === activeChatId);
     const chosen = modelChoice.value;
     const localModel = previousLocal?.model || (chosen.startsWith('local:') ? chosen.slice(6) :
-      chosen === 'auto' && !activeChatId ? localModels.find(model => model === 'qwen3:4b') || localModels[0] : '');
+      chosen === 'auto' && !activeChatId && !pickedFiles.length && !selectedIntegrations.size
+        ? localModels.find(model => model === 'qwen3:4b') || localModels[0] : '');
     if (!localModel && desktopBridge?.localStatus && chosen === 'auto' && !activeChatId &&
         sessionInfo?.provider.freeLaunch && sessionInfo?.freeCloudAvailable &&
-        !window.confirm('Ollama is unavailable. Send this message to the free cloud service instead?')) return;
+        !window.confirm('Send this new conversation to the free cloud service?')) return;
     if (localModel && (pickedFiles.length || selectedIntegrations.size)) {
       showNotice('This local chat supports text and approved page excerpts. Remove the attachments or choose a cloud model.');
       return;
@@ -1025,7 +1063,11 @@
         $('stopLocalAI').hidden = false;
         const historyKey = localHistoryKey;
         const result = await desktopBridge.localChat({ model: localModel, messages: context });
-        if (!historyKey || historyKey !== localHistoryKey) return;
+        if (!historyKey || historyKey !== localHistoryKey) {
+          typingRow.remove();
+          userRow?.remove();
+          return;
+        }
         if (!result.text || result.error || result.cancelled) throw Object.assign(new Error(result.error || 'Local generation stopped.'), { code: result.cancelled ? 'local_cancelled' : 'local_error' });
         const source = desktopPage?.url;
         const reply = source ? result.text + '\n\nSources\n[Current page](' + source.replaceAll('(', '%28').replaceAll(')', '%29') + ')' : result.text;
@@ -1055,9 +1097,21 @@
       const routing = sessionInfo?.smartRouting;
       const routingPageConsent = Boolean(page && routing?.enabled &&
         window.confirm('Allow this reply to share the excerpt and relevant chat history with: ' + routing.providers.join(', ') + '?'));
+      cloudReply = new AbortController();
+      $('stopLocalAI').hidden = false;
       const result = await api(page ? '/api/desktop/chat' : '/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ ...(page ? { desktopPage: { ...page, consent: true }, routingPageConsent, routingConsentVersion: routing?.consentVersion } : {}), chatId: activeChatId, modelChoice: chosen === 'free-cloud' ? 'free-cloud' : 'auto', message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
+        signal: cloudReply.signal,
+        body: JSON.stringify({ stream: true, ...(page ? { desktopPage: { ...page, consent: true }, routingPageConsent, routingConsentVersion: routing?.consentVersion } : {}), chatId: activeChatId, modelChoice: chosen === 'free-cloud' ? 'free-cloud' : 'auto', message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
+        onText(part) {
+          const bubble = typingRow.querySelector('.bubble');
+          if (typingRow.classList.contains('typing')) {
+            typingRow.classList.remove('typing');
+            bubble.textContent = '';
+          }
+          bubble.textContent += part;
+          scrollMessagesToBottom('auto');
+        },
       });
       activeChatId = result.chat.id;
       rememberActiveChat(activeChatId);
@@ -1077,11 +1131,12 @@
       userRow?.remove();
       typingRow.remove();
       if (error.code === 'daily_token_limit') showDailyLimit(error.details);
-      else if (error.code !== 'local_cancelled') addMessage('assistant', error.message, null, 'error');
+      else if (error.code !== 'local_cancelled' && error.name !== 'AbortError') addMessage('assistant', error.message, null, 'error');
       if (error.code === 'provider_opt_in_required' || error.code === 'missing_api_key') showNotice(error.message);
       if (error.code === 'insufficient_credits') showNotice(error.message);
     } finally {
       sending = false;
+      cloudReply = undefined;
       localOutput = undefined;
       $('stopLocalAI').hidden = true;
       modelChoice.disabled = false;
@@ -1188,13 +1243,14 @@
       cancelExploration: id => api('/api/browser/explore?id=' + encodeURIComponent(id), { method: 'DELETE' }),
       readPage: url => api('/api/browser/read', { method: 'POST', body: JSON.stringify({ url, consent: true }) }),
       clearContext: id => api('/api/browser/context', { method: 'DELETE', body: JSON.stringify({ id }) }),
-      async send(chatId, message, pageContextId) {
+      async send(chatId, message, pageContextId, onText, signal) {
         const routing = sessionInfo?.smartRouting;
         const routingPageConsent = Boolean(pageContextId && routing?.enabled &&
           window.confirm('Allow NOIR to share the selected public page excerpts and relevant chat history for this reply with: ' + routing.providers.join(', ') + '? Choose Cancel to use your standard provider.'));
         const result = await api('/api/chat', {
           method: 'POST',
-          body: JSON.stringify({ chatId, message, pageContextId, routingPageConsent, routingConsentVersion: routing?.consentVersion, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+          onText, signal,
+          body: JSON.stringify({ stream: true, chatId, message, pageContextId, routingPageConsent, routingConsentVersion: routing?.consentVersion, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
         });
         return result;
       },

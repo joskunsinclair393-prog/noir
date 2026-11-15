@@ -31,6 +31,7 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
   let chatId = null;
   let session = 0;
   let pending = false;
+  let replyController;
   let page = null;
   let reading = 0;
   let loadTimer;
@@ -267,6 +268,8 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
 
   function clearConversation() {
     session++;
+    replyController?.abort();
+    replyController = undefined;
     forgetPage();
     $('browserReadPage').disabled = !entries[index] || entries[index].search;
     chatId = null;
@@ -283,14 +286,24 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
     const current = session;
     const usedPage = page;
     const row = addMessage('You', message);
+    const controller = replyController = new AbortController();
+    let partial;
     prompt.value = '';
     setPending(true);
     try {
-      const result = await send(chatId, message, usedPage?.id);
+      const result = await send(chatId, message, usedPage?.id, part => {
+        if (current !== session) return;
+        partial ||= addMessage('NOIR', '');
+        partial.querySelector('p').textContent += part;
+        const log = $('browserMessages');
+        log.scrollTop = log.scrollHeight;
+      }, controller.signal);
       if (current !== session) return;
       chatId = result.chat.id;
       onChat(result);
-      const reply = addMessage('NOIR', result.chat.messages.at(-1).text);
+      const finalText = result.chat.messages.at(-1).text;
+      const reply = partial || addMessage('NOIR', finalText);
+      reply.querySelector('p').textContent = finalText;
       for (const source of usedPage?.sources || []) {
         const link = document.createElement('a');
         link.href = source.url;
@@ -303,9 +316,12 @@ export function createBrowserWorkspace({ send, onChat, readPage, clearContext, e
     } catch (error) {
       if (current !== session) return;
       row.remove();
+      partial?.remove();
       if (!prompt.value) prompt.value = message;
       setPending(false);
       $('browserChatStatus').textContent = error.message;
+    } finally {
+      if (replyController === controller) replyController = undefined;
     }
   }
   $('browserChatForm').addEventListener('submit', event => {
