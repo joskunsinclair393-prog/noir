@@ -22,6 +22,75 @@
   let integrationsInfo = null;
   let sending = false;
   let editingLastMessage = false;
+  let desktopPage;
+  let captureDesktopPage;
+  const desktopBridge = window.noirPage;
+  const pagePanel = $('desktopPagePanel');
+  function attachDesktopPage(context) {
+    desktopPage = context;
+    $('desktopPageDetails').hidden = !context;
+    $('desktopPageTitle').textContent = context?.title || '';
+    $('desktopPageTitle').title = context?.title || '';
+    $('desktopPageSelection').hidden = !context?.selection;
+    $('desktopPageSource').textContent = context ? new URL(context.url).hostname : '';
+    $('desktopPageSource').href = context?.url || '#';
+    $('desktopPageStatus').textContent = context ? 'Sharing approved · ' + (context.selection ? 'Selection attached' : 'Page attached') : 'No page attached';
+  }
+  if (desktopBridge) {
+    document.body.classList.add('desktop-assistant');
+    pagePanel.hidden = false;
+    document.querySelector('.desktop-chat-header').hidden = false;
+    $('desktopChatNew').onclick = () => startNewChat();
+    $('desktopChatClose').onclick = () => void desktopBridge.close?.();
+    $('desktopChatHistory').onclick = () => {
+      const open = document.body.classList.toggle('desktop-history-open');
+      $('desktopChatHistory').setAttribute('aria-expanded', String(open));
+      if (open) $('historySearch')?.focus();
+    };
+    desktopBridge.onAttach(attachDesktopPage);
+    const explore = $('desktopPageExplore');
+    const controls = $('desktopReadingControls');
+    const pause = $('desktopReadingPause');
+    desktopBridge.onReadingProgress?.(({ message, host, running }) => {
+      $('desktopReadingStatus').textContent = host + ' · ' + message;
+      controls.hidden = !running;
+      if (!running) pause.textContent = 'Pause';
+    });
+    pause.onclick = () => {
+      const paused = pause.textContent === 'Pause';
+      void desktopBridge.controlReading(paused ? 'pause' : 'run');
+      pause.textContent = paused ? 'Resume' : 'Pause';
+    };
+    $('desktopReadingStop').onclick = () => void desktopBridge.controlReading('stop');
+    captureDesktopPage = async (mode = 'read') => {
+      const button = $('desktopPageAsk');
+      if (button.disabled) return false;
+      button.disabled = explore.disabled = true;
+      try {
+        const result = await desktopBridge.request(mode);
+        if (result.context) attachDesktopPage(result.context);
+        else $('desktopPageStatus').textContent = (result.error || 'Sharing cancelled.') + (desktopPage ? ' Previous excerpt remains attached.' : '');
+        return Boolean(result.context);
+      } catch {
+        $('desktopPageStatus').textContent = 'Could not read the active page.';
+        return false;
+      } finally { button.disabled = explore.disabled = false; }
+    };
+    $('desktopPageAsk').onclick = () => captureDesktopPage();
+    explore.hidden = !desktopBridge.controlReading;
+    explore.onclick = () => captureDesktopPage('explore');
+    $('desktopPageSource').onclick = event => {
+      event.preventDefault();
+      if (desktopPage) void desktopBridge.openSource(desktopPage.url);
+    };
+    $('desktopPageRemove').onclick = () => attachDesktopPage(undefined);
+    for (const button of pagePanel.querySelectorAll('[data-page-prompt]')) button.onclick = () => {
+      if (sending || input.value.trim()) return;
+      input.value = button.dataset.pagePrompt;
+      resize();
+      input.focus();
+    };
+  }
 
   function readAuthSession() {
     try { return JSON.parse(localStorage.getItem(authStorageKey) || 'null'); } catch { return null; }
@@ -29,7 +98,7 @@
   let browserWorkspace;
 
   function saveAuthSession(session) {
-    if (!session) browserWorkspace?.reset();
+    if (!session) { browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
     authSession = session;
     try { session ? localStorage.setItem(authStorageKey, JSON.stringify(session)) : localStorage.removeItem(authStorageKey); } catch {}
   }
@@ -324,6 +393,7 @@
   }
 
   function renderChatHistory() {
+    if (desktopBridge) $('desktopChatTitle').textContent = chats.find(chat => chat.id === activeChatId)?.title || 'New conversation';
     const list = $('chatHistory');
     list.replaceChildren();
     const query = ($('historySearch')?.value || '').trim().toLocaleLowerCase();
@@ -498,7 +568,18 @@
     }
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    if (role === 'assistant' && !state) bubble.innerHTML = renderMarkdown(text);
+    if (role === 'assistant' && !state) {
+      const source = desktopBridge && /\n\nSources\n\[Current page\]\((https:\/\/[^\s()]+)\)$/.exec(text);
+      bubble.innerHTML = renderMarkdown(source ? text.slice(0, source.index) : text);
+      if (source) {
+        const link = document.createElement('button');
+        link.type = 'button';
+        link.className = 'desktop-source-link';
+        link.textContent = 'Open current page source';
+        link.onclick = () => void desktopBridge.openSource(source[1]);
+        bubble.append(link);
+      }
+    }
     else bubble.textContent = text;
     if (role === 'user' && attachmentNames.length) {
       const label = document.createElement('div');
@@ -574,8 +655,13 @@
     if (sending || id === activeChatId) return;
     try {
       const { chat } = await api(`/api/chats/${encodeURIComponent(id)}`);
+      if (desktopPage) attachDesktopPage(undefined);
       editingLastMessage = false;
       activeChatId = chat.id;
+      if (desktopBridge) {
+        document.body.classList.remove('desktop-history-open');
+        $('desktopChatHistory').setAttribute('aria-expanded', 'false');
+      }
       rememberActiveChat(activeChatId);
       messages.replaceChildren();
       chat.messages.forEach(item => addMessage(item.role, item.text, item.role === 'user' ? item.usage : null, '', false, item.attachments?.map(file => file.name) || []));
@@ -592,6 +678,7 @@
   function startNewChat(focus = true) {
     browserWorkspace?.showAssistant();
     if (sending) return;
+    if (desktopPage) attachDesktopPage(undefined);
     editingLastMessage = false;
     activeChatId = null;
     rememberActiveChat(null);
@@ -753,6 +840,14 @@
     if (!value) {
       return;
     }
+    const explorePage = desktopBridge?.controlReading && !options.regenerate &&
+      /\bscroll (?:down|further)|\b(?:explore|read) (?:this|the) (?:whole |entire )?(?:web)?page/i.test(value);
+    const readPage = desktopBridge && !options.regenerate &&
+      /\b(?:this|current|open) (?:web)?page\b/i.test(value);
+    if (explorePage || readPage) {
+      if (!await captureDesktopPage(explorePage ? 'explore' : 'read')) return;
+      if (sending) return;
+    }
     sending = true;
     $('send').disabled = true;
     input.disabled = true;
@@ -769,9 +864,13 @@
         data: (await fileToDataUrl(file)).split(',')[1] || '',
       })));
       const pluginNames = [...selectedIntegrations.values()].filter(item => item.type === 'Plugin').map(item => item.name);
-      const result = await api('/api/chat', {
+      const page = desktopPage;
+      const routing = sessionInfo?.smartRouting;
+      const routingPageConsent = Boolean(page && routing?.enabled &&
+        window.confirm('Allow this reply to share the excerpt and relevant chat history with: ' + routing.providers.join(', ') + '?'));
+      const result = await api(page ? '/api/desktop/chat' : '/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ chatId: activeChatId, message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
+        body: JSON.stringify({ ...(page ? { desktopPage: { ...page, consent: true }, routingPageConsent, routingConsentVersion: routing?.consentVersion } : {}), chatId: activeChatId, message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
       });
       activeChatId = result.chat.id;
       rememberActiveChat(activeChatId);

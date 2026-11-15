@@ -767,3 +767,45 @@ body.light-theme :is(.browser-view,.view-switch) {
   margin: 0.45rem 1rem;
   color: inherit;
 }
+
+.browser-desktop-download {
+  display: inline-block;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  color: var(--noir-text);
+  padding: 9px 14px;
+  text-decoration: none;
+}
+.browser-desktop-download:hover { text-decoration: underline; }
+
+/* Desktop companion uses the same chat and theme as NOIR on the web. */
+.desktop-assistant .chat{padding:14px 12px 6px}
+.desktop-assistant .messages{gap:14px}
+.desktop-assistant .message .bubble{font-size:14px;line-height:1.55;overflow-wrap:anywhere}
+.desktop-assistant .composer-wrap{padding:8px 10px 12px}
+.desktop-assistant .welcome{margin-bottom:16px}
+.desktop-assistant .suggestions{display:none}
+.desktop-page-panel{width:100%;max-width:768px;margin:0 auto 8px;padding:8px;border:1px solid currentColor;border-color:color-mix(in srgb,currentColor 19%,transparent);border-radius:10px}
+.desktop-page-actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+.desktop-page-actions strong{flex:1;min-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.desktop-page-actions small,.desktop-page-actions a{font-size:11px;overflow-wrap:anywhere;color:inherit}
+.desktop-page-actions button{color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:6px;padding:4px 7px;font-size:11px}
+.desktop-page-actions button:hover{background:color-mix(in srgb,currentColor 12%,transparent)}
+
+.desktop-assistant .app { grid-template-columns: minmax(0,1fr); position: relative; }
+.desktop-assistant .main { grid-column: 1; min-width: 0; }
+.desktop-assistant .topbar { height: 51px; padding-inline: 12px; }
+.desktop-assistant .topbar > :is(.topbar-leading,.view-switch) { display: none; }
+.desktop-assistant .desktop-chat-header { min-width: 0; width: 100%; display: flex; align-items: center; gap: 5px; }
+.desktop-assistant .desktop-chat-header img { width: 25px; height: 25px; }
+.desktop-chat-header > div { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.desktop-chat-header b { font-size: 12px; }
+.desktop-chat-header span { font-size: 11px; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-chat-header button { background: transparent; color: inherit; border: 0; border-radius: 6px; padding: 4px; min-width: 25px; cursor: pointer; }
+.desktop-chat-header button:hover,.desktop-chat-header button:focus-visible { background: color-mix(in srgb,currentColor 13%,transparent); }
+.desktop-assistant .topbar-actions { margin-left: 3px; gap: 2px; }
+.desktop-assistant .topbar-actions :is(.profile-trigger,.settings-trigger) { width: 25px; height: 27px; }
+.desktop-assistant .app > .sidebar { display: none; }
+.desktop-assistant.desktop-history-open .app > .sidebar { display: flex; position: absolute; z-index: 5; inset: 51px 0 0; width: 100%; transform: none; overflow: auto; }
+.desktop-assistant .sidebar :is(.side-brand,.newchat,.side-bottom) { display: none; }
+.desktop-assistant .welcome .welcome-logo { display: none; }

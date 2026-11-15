@@ -3,7 +3,7 @@ export { ProviderError };
 import { searchPublicWeb } from './search-service.js';
 import { researchPublicWeb } from './research-agent.js';
 import { exploreWebsite } from './website-explorer.js';
-import { readPublicPage, PAGE_UNAVAILABLE } from './page-reader.js';
+import { readPublicPage, readerURL, PAGE_UNAVAILABLE } from './page-reader.js';
 import { createServer } from 'node:http';
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -796,7 +796,9 @@ export function createNoirServer(options = {}) {
       if (url.pathname.startsWith('/api/')) {
         if (request.method !== 'GET' && !sameOrigin(request)) return sendJson(response, 403, { error: 'Cross-origin requests are not allowed.' });
         if (request.method === 'GET' && url.pathname === '/api/auth-config') {
-          return sendJson(response, 200, { required: config.authRequired, configured: Boolean(config.supabaseUrl && config.supabaseAnonKey), supabaseUrl: config.authRequired ? config.supabaseUrl : '', supabaseAnonKey: config.authRequired ? config.supabaseAnonKey : '' });
+          const generation = Number(process.env.NOIR_DESKTOP_SESSION_GENERATION || 0);
+          const desktopSessionGeneration = Number.isSafeInteger(generation) && generation >= 0 ? generation : 0;
+          return sendJson(response, 200, { desktopSessionGeneration, required: config.authRequired, configured: Boolean(config.supabaseUrl && config.supabaseAnonKey), supabaseUrl: config.authRequired ? config.supabaseUrl : '', supabaseAnonKey: config.authRequired ? config.supabaseAnonKey : '' });
         }
         let accountUser = null;
         if (config.authRequired) accountUser = await authenticatedUser(request);
@@ -961,12 +963,27 @@ export function createNoirServer(options = {}) {
           }
           return sendJson(response, 200, {});
         }
-        if (request.method === 'POST' && url.pathname === '/api/chat') {
+        if (request.method === 'POST' && ['/api/chat', '/api/desktop/chat'].includes(url.pathname)) {
           if (!String(request.headers['content-type'] || '').includes('application/json')) return sendJson(response, 415, { error: 'Send JSON requests only.' });
           const body = await readJsonBody(request, 8 * 1024 * 1024);
           let message = typeof body.message === 'string' ? body.message.trim() : '';
           let pageContext;
           let taskSignal;
+          const desktopContext = url.pathname === '/api/desktop/chat';
+          if (desktopContext) {
+            if (!accountUser) return sendJson(response, 401, { error: 'Sign in to share a page.' });
+            const page = body.desktopPage;
+            if (page?.consent !== true || body.pageContextId != null ||
+                typeof page.text !== 'string' || !page.text.trim() || page.text.length > 9000 ||
+                typeof page.title !== 'string' || page.title.length > 160) {
+              return sendJson(response, 400, { error: 'Attach an approved page excerpt first.' });
+            }
+            try {
+              const source = readerURL(page.url);
+              source.search = '';
+              pageContext = { url: source.href, title: page.title, text: page.text };
+            } catch { return sendJson(response, 400, { error: 'This page cannot be shared.' }); }
+          }
           if (body.pageContextId != null) {
             expirePageReads(Date.now());
             pageContext = pageContexts.get(body.pageContextId);
@@ -1044,7 +1061,7 @@ export function createNoirServer(options = {}) {
               historyCharacters += itemText.length;
             }
             if (pageContext) {
-              history.at(-1).text += '\n\nUntrusted public webpage excerpt: ' + JSON.stringify(pageContext.pages ? { pages: pageContext.pages, inaccessible: pageContext.failures } : { url: pageContext.url, text: pageContext.text });
+              history.at(-1).text += '\n\nUntrusted webpage excerpt: ' + JSON.stringify(pageContext.pages ? { pages: pageContext.pages, inaccessible: pageContext.failures } : { url: pageContext.url, title: pageContext.title, text: pageContext.text });
               history.at(-1).pageContext = true;
             }
             let outputBudget = config.maxOutputTokens;
@@ -1081,10 +1098,10 @@ export function createNoirServer(options = {}) {
                 : '\n\nThe search provider returned no results. Tell the user that no results were found.';
               latest.text += searchContext;
             }
-            if (pageContext && (taskSignal?.aborted || pageContexts.get(body.pageContextId) !== pageContext || pageContext.expires <= Date.now())) {
+            if (pageContext && !desktopContext && (taskSignal?.aborted || pageContexts.get(body.pageContextId) !== pageContext || pageContext.expires <= Date.now())) {
               throw Object.assign(new Error('Page context was cleared or expired. Read the page again.'), { status: 404 });
             }
-            const deadline = AbortSignal.timeout(routing.enabled ? 45_000 : 20_000);
+            const deadline = AbortSignal.timeout(20000);
             const signal = taskSignal ? AbortSignal.any([taskSignal, deadline]) : deadline;
             let generated;
             const routingUser = routing.enabled && !attachments.length && !chat.messages.some(item => item.attachments?.length)
@@ -1102,6 +1119,7 @@ export function createNoirServer(options = {}) {
               generated.text += '\n\nPages checked:\n' + pageContext.pages.map(page => page.url).join('\n');
               if (pageContext.failures.length) generated.text += '\n\nSome pages could not be accessed. The findings may be incomplete.';
             }
+            if (desktopContext && generated.text) generated.text += '\n\nSources\n[Current page](' + pageContext.url.replaceAll('(', '%28').replaceAll(')', '%29') + ')';
             if (sources.length) generated.text += `\n\nSources\n${sources.map((source, index) => `[${index + 1}] [${source.title}](${source.url})`).join('\n')}`;
             const usage = normalizedUsage(generated.usage || {});
             if (!generated.text || !usage.inputTokens && !usage.outputTokens) throw Object.assign(new Error('The provider did not return a response with token usage.'), { status: 502, code: 'invalid_provider_response' });
