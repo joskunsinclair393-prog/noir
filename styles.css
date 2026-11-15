@@ -813,3 +813,10 @@ body.light-theme :is(.browser-view,.view-switch) {
 .desktop-full-chat .topbar { justify-content: center; }
 .desktop-full-chat.desktop-history-open .app > .sidebar { width: min(330px, 100%); }
 
+
+#connectorManager { margin-block: 12px; padding: 12px; border: 1px solid currentColor; border-color: color-mix(in srgb, currentColor 24%, transparent); border-radius: 8px; }
+#connectorManager h4 { margin: 0; }
+#connectorManager p { font-size: 13px; }
+#connectorManager button { border: 1px solid currentColor; border-color: color-mix(in srgb, currentColor 26%, transparent); border-radius: 6px; color: inherit; background: transparent; padding: 6px 9px; margin: 2px; cursor: pointer; }
+#connectorManager button:disabled { opacity: .55; cursor: default; }
+#connectorManagerOutput { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14rem; overflow: auto; }

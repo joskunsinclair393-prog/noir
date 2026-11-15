@@ -107,7 +107,7 @@
   let browserWorkspace;
 
   function saveAuthSession(session) {
-    if (!session) { document.body.classList.remove('desktop-chat-ready'); browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
+    if (!session) { if ($('connectorManager')) { $('connectorManager').hidden = true; $('connectorManagerOutput').textContent = ''; } document.body.classList.remove('desktop-chat-ready'); browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
     authSession = session;
     try { session ? localStorage.setItem(authStorageKey, JSON.stringify(session)) : localStorage.removeItem(authStorageKey); } catch {}
   }
@@ -299,7 +299,9 @@
       const state = button.querySelector('.option-state');
       const availability = button.dataset.type === 'Connector' ? data?.connectors?.[button.dataset.name] : data?.plugins?.[button.dataset.name];
       const ready = Boolean(availability?.ready);
+      const desktopConnector = desktopBridge && button.dataset.type === 'Connector';
       button.disabled = !ready;
+      if (ready && desktopConnector) button.title = 'Manage this connection on the NOIR website.';
       button.setAttribute('aria-disabled', String(!ready));
       if (!ready) {
         state.textContent = button.dataset.type === 'Connector' ? 'Setup required' : 'Unavailable';
@@ -518,6 +520,7 @@
 
   function syncIntegrationOptions() {
     document.querySelectorAll('.integration-option').forEach(button => {
+      if (button.dataset.type === 'Connector') return;
       const key = button.dataset.type + ':' + button.dataset.name;
       const active = selectedIntegrations.has(key);
       button.setAttribute('aria-checked', String(active));
@@ -727,8 +730,49 @@
     renderAttachments();
     element.value = '';
   }));
+  function renderConnectorManager(name) {
+    const panel = $('connectorManager');
+    const availability = integrationsInfo?.connectors?.[name];
+    if (!availability?.ready) return;
+    panel.hidden = false;
+    $('connectorManagerName').textContent = name;
+    $('connectorManagerPermissions').textContent = availability.permissions?.join(' · ') || '';
+    $('connectorManagerStatus').textContent = desktopBridge ? 'Open NOIR in your default browser to authorize and manage this connection.' : '';
+    const preview = $('connectorManagerOutput');
+    preview.textContent = '';
+    for (const [id, action] of [['connectorConnect', 'start'], ['connectorRead', 'read'], ['connectorDisconnect', 'disconnect']]) {
+      const button = $(id);
+      button.hidden = Boolean(desktopBridge) || (action !== 'start' && !availability.connected);
+      if (action === 'start') button.textContent = availability.connected ? 'Reconnect' : 'Connect';
+      button.onclick = async () => {
+        const status = $('connectorManagerStatus');
+        const buttons = [...panel.querySelectorAll('button')];
+        buttons.forEach(item => { item.disabled = true; });
+        status.textContent = 'Working…';
+        try {
+          const result = await api('/api/connectors/' + action, { method: 'POST', body: JSON.stringify({ name }) });
+          if (action === 'start') { location.assign(result.authorizeUrl); return; }
+          if (action === 'disconnect') {
+            const { integrations } = await api('/api/integrations');
+            updateIntegrationAvailability(integrations);
+            renderConnectorManager(name);
+            status.textContent = 'Disconnected from NOIR. You can also remove access in your Google Account.';
+            return;
+          }
+          $('connectorManagerOutput').textContent = result.rows.map(row => row.filter(Boolean).join(' · ')).join('\n');
+          status.textContent = result.rows.length ? 'Showing recent items from this connection.' : 'No recent items were returned.';
+        } catch (error) {
+          status.textContent = error.message;
+        } finally { buttons.forEach(item => { item.disabled = false; }); }
+      };
+    }
+    $('connectorWebLink').hidden = !desktopBridge?.openConnectors;
+    $('connectorWebLink').onclick = () => void desktopBridge?.openConnectors?.();
+  }
+
   document.querySelectorAll('.integration-option').forEach(button => button.addEventListener('click', () => {
     if (button.disabled) return;
+    if (button.dataset.type === 'Connector') { renderConnectorManager(button.dataset.name); return; }
     const key = button.dataset.type + ':' + button.dataset.name;
     if (selectedIntegrations.has(key)) selectedIntegrations.delete(key);
     else selectedIntegrations.set(key, { type: button.dataset.type, name: button.dataset.name });
@@ -944,6 +988,14 @@
       $('profileSignOut').hidden = true;
     }
     await confirmPlusFromWebhook();
+    const params = new URL(location.href).searchParams;
+    if (params.get('settings') === 'connectors') openSettings('connectors');
+    const connection = params.get('connector');
+    if (connection === 'connected' || connection === 'incomplete') {
+      history.replaceState(null, '', location.pathname + location.hash);
+      openSettings('connectors');
+      $('connectorCallbackStatus').textContent = connection === 'connected' ? 'Google connection saved.' : 'Authorization was cancelled or incomplete. You can try again.';
+    }
     if (desktopBridge) document.body.classList.add('desktop-chat-ready');
   }
 

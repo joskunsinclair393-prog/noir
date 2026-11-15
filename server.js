@@ -1,3 +1,4 @@
+import { createGoogleConnectors } from './google-connectors.js';
 import { generateAdditional, providerJson, ProviderError, providers, readRoutingConfig, routeGeneration } from './ai-routing.js';
 export { ProviderError };
 import { searchPublicWeb } from './search-service.js';
@@ -636,6 +637,14 @@ export function createNoirServer(options = {}) {
     };
   }
 
+  const googleConnectors = createGoogleConnectors({ config, env: { ...process.env, ...options.connectorEnv }, request: options.fetchImpl || fetch });
+  async function accountIntegrations(user) {
+    const integrations = integrationInfo();
+    const google = await googleConnectors.status(user?.id, Object.keys(integrations.connectors));
+    if (google) Object.assign(integrations.connectors, google);
+    return integrations;
+  }
+
   function integrationInfo() {
     const provider = providerInfo();
     const binaryFileAnalysis = ['gemini', 'openai'].includes(provider.id) && provider.keyConfigured && provider.requestsEnabled;
@@ -795,6 +804,17 @@ export function createNoirServer(options = {}) {
         await handleStripeEvent(event);
         return sendJson(response, 200, { received: true });
       }
+      if (request.method === 'GET' && url.pathname === '/oauth/google/connectors') {
+        const binding = cookieValue(request, '__Host-noir_connector');
+        let connected = false;
+        try { connected = await googleConnectors.complete(url.searchParams.get('state'), binding, url.searchParams.get('code')); } catch {}
+        response.writeHead(303, {
+          location: '/?connector=' + (connected ? 'connected' : 'incomplete'),
+          'cache-control': 'no-store',
+          'set-cookie': '__Host-noir_connector=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0',
+        });
+        return response.end();
+      }
       if (url.pathname.startsWith('/api/')) {
         if (request.method !== 'GET' && !sameOrigin(request)) return sendJson(response, 403, { error: 'Cross-origin requests are not allowed.' });
         if (request.method === 'GET' && url.pathname === '/api/auth-config') {
@@ -805,13 +825,27 @@ export function createNoirServer(options = {}) {
         let accountUser = null;
         if (config.authRequired) accountUser = await authenticatedUser(request);
         const getSession = (req, res) => config.authRequired ? authenticatedSessionFor(accountUser) : Promise.resolve(sessionFor(req, res));
+        if (request.method === 'POST' && ['/api/connectors/start', '/api/connectors/read', '/api/connectors/disconnect'].includes(url.pathname)) {
+          if (!accountUser) return sendJson(response, 401, { error: 'Sign in to manage connectors.' });
+          if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || '')) return sendJson(response, 400, { error: 'Send a JSON request.' });
+          const { name } = await readJsonBody(request, 2048);
+          if (typeof name !== 'string' || name.length > 80) return sendJson(response, 400, { error: 'Choose a connector.' });
+          checkRateLimit('connector:' + accountUser.id, false);
+          if (url.pathname.endsWith('/start')) {
+            const { state, url: authorizeUrl } = googleConnectors.start(accountUser.id, name);
+            return sendJson(response, 200, { authorizeUrl }, { 'set-cookie': '__Host-noir_connector=' + state + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600' });
+          }
+          if (url.pathname.endsWith('/read')) return sendJson(response, 200, { rows: await googleConnectors.read(accountUser.id, name) });
+          await googleConnectors.disconnect(accountUser.id, name);
+          return sendJson(response, 200, { disconnected: true });
+        }
         if (request.method === 'GET' && url.pathname === '/api/bootstrap') {
           const { data, user } = await getSession(request, response);
           const subscription = user ? await getSubscriptionRow(user.id) : null;
-          return sendJson(response, 200, { session: sessionSummary(data, user, subscription), user: user ? { email: user.email } : null, chats: data.chats.map(chatSummary).sort((a, b) => b.updatedAt - a.updatedAt), integrations: integrationInfo() });
+          return sendJson(response, 200, { session: sessionSummary(data, user, subscription), user: user ? { email: user.email } : null, chats: data.chats.map(chatSummary).sort((a, b) => b.updatedAt - a.updatedAt), integrations: await accountIntegrations(accountUser) });
         }
         if (request.method === 'GET' && url.pathname === '/api/integrations') {
-          return sendJson(response, 200, { integrations: integrationInfo() });
+          return sendJson(response, 200, { integrations: await accountIntegrations(accountUser) });
         }
         if (request.method === 'GET' && url.pathname === '/api/subscription') {
           requireBillingSetup();
