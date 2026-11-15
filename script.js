@@ -39,6 +39,15 @@
   if (desktopBridge) {
     document.body.classList.add('desktop-assistant');
     pagePanel.hidden = false;
+    desktopBridge.onChatLayout?.(mode => document.body.classList.toggle('desktop-full-chat', mode === 'full'));
+    document.addEventListener('noir:home-prompt', event => {
+      if (!document.body.classList.contains('desktop-chat-ready') || sending) return;
+      const text = event.detail;
+      if (typeof text !== 'string' || text.length > 12000) return;
+      event.preventDefault();
+      startNewChat(false);
+      if (text) void send(text, { homepage: true });
+    });
     document.querySelector('.desktop-chat-header').hidden = false;
     $('desktopChatNew').onclick = () => startNewChat();
     $('desktopChatClose').onclick = () => void desktopBridge.close?.();
@@ -98,7 +107,7 @@
   let browserWorkspace;
 
   function saveAuthSession(session) {
-    if (!session) { browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
+    if (!session) { document.body.classList.remove('desktop-chat-ready'); browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
     authSession = session;
     try { session ? localStorage.setItem(authStorageKey, JSON.stringify(session)) : localStorage.removeItem(authStorageKey); } catch {}
   }
@@ -251,6 +260,7 @@
 
   function updateSession(data) {
     sessionInfo = data;
+    if (desktopBridge) $('desktopChatProvider').textContent = data.provider?.label || '';
     const usage = data.usage || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     $('profileLifetimeTokens').textContent = numberFormat.format(usage.totalTokens || 0);
     $('profileDailyTokens').textContent = numberFormat.format(data.dailyTokens || 0);
@@ -840,9 +850,9 @@
     if (!value) {
       return;
     }
-    const explorePage = desktopBridge?.controlReading && !options.regenerate &&
+    const explorePage = desktopBridge?.controlReading && !options.homepage && !options.regenerate &&
       /\bscroll (?:down|further)|\b(?:explore|read) (?:this|the) (?:whole |entire )?(?:web)?page/i.test(value);
-    const readPage = desktopBridge && !options.regenerate &&
+    const readPage = desktopBridge && !options.homepage && !options.regenerate &&
       /\b(?:this|current|open) (?:web)?page\b/i.test(value);
     if (explorePage || readPage) {
       if (!await captureDesktopPage(explorePage ? 'explore' : 'read')) return;
@@ -883,6 +893,7 @@
       showRoutingResult('assistantRoutingStatus', result.routing);
       updateChatSummary(result.chat);
       updateSession(result.session);
+      if (desktopBridge && result.routing?.provider) $('desktopChatProvider').textContent = result.routing.provider;
       if (sessionInfo?.provider.ready) showNotice('', false);
       clearDraft();
       editingLastMessage = false;
@@ -899,7 +910,7 @@
       $('send').disabled = false;
       input.disabled = false;
       if (failed && options.edit) input.value = value;
-      else input.value = '';
+      else input.value = failed && options.homepage ? value : '';
       resize();
       if (!options.regenerate && $('limitBackdrop').hidden) input.focus({ preventScroll: true });
     }
@@ -944,6 +955,7 @@
       $('profileSignOut').hidden = true;
     }
     await confirmPlusFromWebhook();
+    if (desktopBridge) document.body.classList.add('desktop-chat-ready');
   }
 
   async function initialize() {

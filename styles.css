@@ -809,3 +809,13 @@ body.light-theme :is(.browser-view,.view-switch) {
 .desktop-assistant.desktop-history-open .app > .sidebar { display: flex; position: absolute; z-index: 5; inset: 51px 0 0; width: 100%; transform: none; overflow: auto; }
 .desktop-assistant .sidebar :is(.side-brand,.newchat,.side-bottom) { display: none; }
 .desktop-assistant .welcome .welcome-logo { display: none; }
+
+.desktop-full-chat .chat { padding: 24px clamp(16px, 5vw, 48px) 8px; }
+.desktop-full-chat .composer-wrap { padding: 12px clamp(16px, 5vw, 48px) 20px; }
+.desktop-full-chat .desktop-page-panel { display: none; }
+.desktop-full-chat .desktop-chat-header { max-width: 760px; }
+.desktop-full-chat .topbar { justify-content: center; }
+.desktop-full-chat.desktop-history-open .app > .sidebar { width: min(330px, 100%); }
+
+#desktopChatProvider { display: none; }
+.desktop-full-chat #desktopChatProvider { display: block; margin-inline: 8px; font-size: 11px; opacity: .75; }
