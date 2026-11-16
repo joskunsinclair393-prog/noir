@@ -135,13 +135,16 @@
         </div>
       </section>
       <div id="modelTools" class="model-tools" aria-label="Model and generation controls">
-        <select id="modelChoice" aria-label="Choose an AI model">
+        <div class="model-picker">
+          <span class="model-picker-mark" aria-hidden="true"></span>
+          <select id="modelChoice" aria-label="Choose an AI model">
           <option value="auto">NOIR Auto</option>
           <option value="free-cloud" disabled>Free cloud · OpenRouter</option>
           <option value="future-gpt" disabled>OpenAI GPT · Coming soon</option>
           <option value="future-claude" disabled>Claude · Coming soon</option>
           <option value="future-gemini" disabled>Gemini Premium · Coming soon</option>
-        </select>
+          </select>
+        </div>
         <button type="button" id="checkLocalAI" hidden>Check Ollama</button>
         <button type="button" id="installLocalModel" hidden>Download Qwen3 4B</button>
         <button type="button" id="stopLocalAI" hidden>Stop</button>

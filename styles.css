@@ -821,7 +821,65 @@ body.light-theme :is(.browser-view,.view-switch) {
 #connectorManager button:disabled { opacity: .55; cursor: default; }
 #connectorManagerOutput { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14rem; overflow: auto; }
 
-.model-tools { max-width: 800px; margin: 0 auto 7px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.model-tools select, .model-tools button { background: transparent; color: inherit; border: 1px solid color-mix(in srgb,currentColor 22%,transparent); border-radius: 7px; padding: 5px 8px; font: inherit; font-size: 12px; }
+.model-tools {
+  max-width: 800px;
+  margin: 0 auto 9px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.model-picker { position: relative; min-width: 0; max-width: 100%; }
+.model-picker-mark, .model-picker::after {
+  position: absolute;
+  top: 50%;
+  pointer-events: none;
+}
+.model-picker-mark {
+  left: 11px;
+  width: 17px;
+  height: 17px;
+  background: url('/logo.svg') center / contain no-repeat;
+  transform: translateY(-50%);
+}
+.model-picker::after {
+  content: '';
+  right: 13px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-70%) rotate(45deg);
+  opacity: .7;
+}
+.model-tools select, .model-tools button {
+  background: color-mix(in srgb, currentColor 5%, transparent);
+  color: inherit;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 11px;
+  min-height: 36px;
+  padding: 6px 11px;
+  font: inherit;
+  font-size: 13px;
+  transition: background-color .15s, border-color .15s;
+}
+.model-tools select {
+  appearance: none;
+  width: 100%;
+  padding-inline: 34px 31px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
 .model-tools select option { background: Canvas; color: CanvasText; }
-.model-tools small { font-size: 11px; opacity: .75; }
+.model-tools :is(select, button):not(:disabled):hover {
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+  cursor: pointer;
+}
+.model-tools select:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.model-tools :is(select, button):disabled { opacity: .65; }
+.model-tools small { font-size: 12px; opacity: .82; overflow-wrap: anywhere; }
+.model-tools small:empty { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .model-tools :is(select, button) { transition: none; }
+}
