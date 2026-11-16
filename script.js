@@ -104,8 +104,7 @@
   modelChoice.onchange = () => {
     if (modelChoice.value === 'challenge') {
       modelChoice.value = 'auto';
-      if (sessionInfo?.subscription?.isPlus) void openChallenge();
-      else openPlus(true);
+      showChallengeEntry();
       return;
     }
     if (sending || checkingModel) return;
@@ -457,6 +456,13 @@
     document.body.classList.add('plus-open');
     $('plusClose').focus({ preventScroll: true });
   }
+
+  function showChallengeEntry() {
+    if (sessionInfo?.subscription?.isPlus) void openChallenge();
+    else openPlus(true);
+  }
+  $('challengeEntry').addEventListener('click', showChallengeEntry);
+  $('authChallenge').addEventListener('click', () => openPlus(true));
 
   function closePlus() {
     $('plusBackdrop').hidden = true;

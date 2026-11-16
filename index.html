@@ -43,6 +43,7 @@
       <button type="submit" class="auth-submit" id="authSubmit">Sign in</button>
     </form>
     <div class="auth-mode">New to NOIR? <button type="button" id="authModeToggle">Create an account</button></div>
+    <div class="auth-mode"><button type="button" id="authChallenge">🏆 Explore NOIR Challenge · PLUS</button></div>
     <p class="auth-mode">NOIR Browser for Mac · <a href="https://github.com/joskunsinclair393-prog/noir/releases/download/desktop-v0.2.14-preview/NOIR-Browser-0.2.14-arm64.dmg">Apple Silicon 0.2.14 preview</a> · <a href="https://github.com/joskunsinclair393-prog/noir/releases/download/desktop-v0.2.11-preview/NOIR-Browser-0.2.11-x64.dmg">Intel Mac 0.2.11</a></p>
     <p class="auth-feedback" id="authFeedback" role="status" aria-live="polite"></p>
     <p class="auth-terms">By continuing, you agree to use NOIR responsibly. Your chats are private to your account.</p>
@@ -147,6 +148,7 @@
           <option value="challenge">🏆 NOIR Challenge 🔒 PLUS</option>
           </select>
         </div>
+        <button type="button" id="challengeEntry">🏆 NOIR Challenge · PLUS</button>
         <button type="button" id="checkLocalAI" hidden>Check Ollama</button>
         <button type="button" id="installLocalModel" hidden>Download Qwen3 4B</button>
         <button type="button" id="stopLocalAI" hidden>Stop</button>
@@ -336,7 +338,7 @@
       <div role="row"><span role="cell">Eligible model access</span><span role="cell">Available models</span><b role="cell">Priority when supported</b></div>
     </div>
     <p class="plus-fair-use">Plus removes NOIR’s own daily quota and per-account message cap. Provider quotas, spending limits, model availability, and service-wide safeguards still apply.</p>
-    <button type="button" class="plus-button plus-checkout" id="plusCheckout">Get NOIR Plus · $15 AUD/month</button>
+    <button type="button" class="plus-button plus-checkout" id="plusCheckout" hidden>Get NOIR Plus · $15 AUD/month</button>
     <button type="button" class="manage-button plus-manage" id="plusManage" hidden>Manage subscription</button>
     <p class="plus-feedback" id="plusFeedback" role="status" aria-live="polite"></p>
     <button type="button" class="plus-dismiss" id="plusDismiss">Maybe later</button>
