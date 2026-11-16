@@ -880,6 +880,30 @@ body.light-theme :is(.browser-view,.view-switch) {
 .model-tools :is(select, button):disabled { opacity: .65; }
 .model-tools small { font-size: 12px; opacity: .82; overflow-wrap: anywhere; }
 .model-tools small:empty { display: none; }
+@supports (appearance: base-select) {
+  .model-tools select, .model-tools select::picker(select) {
+    appearance: base-select;
+  }
+  .model-tools select::picker-icon { display: none; }
+  .model-tools select::picker(select) {
+    margin: 6px 0;
+    padding: 5px;
+    border: 1px solid color-mix(in srgb, CanvasText 20%, Canvas);
+    border-radius: 12px;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: 0 8px 22px #0003;
+  }
+  .model-tools select option {
+    padding: 7px 10px;
+    border-radius: 7px;
+    transition: background-color .15s ease;
+  }
+  .model-tools select option:checked,
+  .model-tools select option:not(:disabled):is(:hover, :focus-visible) {
+    background: color-mix(in srgb, CanvasText 11%, Canvas);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .model-tools :is(select, button) { transition: none; }
+  .model-tools :is(select, button, option) { transition: none; }
 }
