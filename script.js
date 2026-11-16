@@ -845,7 +845,7 @@
       });
       const challenge = document.createElement('button');
       challenge.type = 'button';
-      challenge.textContent = '🏆 Challenge';
+      challenge.textContent = 'Challenge';
       challenge.setAttribute('aria-label', 'Start a blind NOIR Challenge for this reply');
       const originalPrompt = replyPrompt ?? messagePrompts.get([...messages.querySelectorAll('.message.user')].at(-1));
       challenge.onclick = () => {
