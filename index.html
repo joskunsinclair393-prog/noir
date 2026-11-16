@@ -134,23 +134,6 @@
           </div>
         </div>
       </section>
-      <div id="modelTools" class="model-tools" aria-label="Model and generation controls">
-        <div class="model-picker">
-          <span class="model-picker-mark" aria-hidden="true"></span>
-          <select id="modelChoice" aria-label="Choose an AI model">
-          <option value="auto">NOIR Auto</option>
-          <option value="free-cloud" disabled>Free cloud · OpenRouter</option>
-          <option value="future-gpt" disabled>OpenAI GPT · Coming soon</option>
-          <option value="future-claude" disabled>Claude · Coming soon</option>
-          <option value="future-gemini" disabled>Gemini Premium · Coming soon</option>
-          <option value="future-deepseek" disabled>DeepSeek · Coming soon</option>
-          </select>
-        </div>
-        <button type="button" id="checkLocalAI" hidden>Check Ollama</button>
-        <button type="button" id="installLocalModel" hidden>Download Qwen3 4B</button>
-        <button type="button" id="stopLocalAI" hidden>Stop</button>
-        <small id="modelStatus" role="status"></small>
-      </div>
       <div class="composer">
         <textarea id="prompt" rows="1" placeholder="Message NOIR..." aria-label="Message NOIR"></textarea>
         <div class="attachments" id="attachments" aria-live="polite"></div>
@@ -168,6 +151,7 @@
               <input id="fileInput" type="file" accept=".pdf,.txt,.csv,.md,.markdown,.json,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,text/csv,text/markdown,application/json,image/png,image/jpeg,image/webp" multiple hidden>
               <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
             </div>
+            <button type="button" class="attach" id="stopLocalAI" aria-label="Stop response" title="Stop response" hidden>■</button>
             <span class="hint">Enter to send · Shift + Enter for a new line</span>
           </div>
           <button class="send" id="send" aria-label="Send message">↑</button>
@@ -264,6 +248,28 @@
         <section class="settings-panel" data-settings-panel="general">
           <div class="settings-panel-title"><div><h3>General</h3><p>Adjust how NOIR looks and behaves.</p></div></div>
           <div class="settings-options">
+            <div class="setting-switch-row">
+              <div class="settings-model-control">
+                <label class="setting-option-copy" for="modelChoice"><b>AI model</b><small>Choose the model for your next conversation.</small></label>
+                <div id="modelTools" class="model-tools" aria-label="Model and generation controls">
+                  <div class="model-picker">
+                    <span class="model-picker-mark" aria-hidden="true"></span>
+                    <select id="modelChoice" aria-label="Choose an AI model">
+                    <option value="auto">NOIR Auto</option>
+                    <option value="free-cloud" disabled>Free cloud · OpenRouter</option>
+                    <option value="future-gpt" disabled>OpenAI GPT · Coming soon</option>
+                    <option value="future-claude" disabled>Claude · Coming soon</option>
+                    <option value="future-gemini" disabled>Gemini Premium · Coming soon</option>
+                    <option value="future-deepseek" disabled>DeepSeek · Coming soon</option>
+                    </select>
+                  </div>
+                  <button type="button" id="checkLocalAI" hidden>Check Ollama</button>
+                  <button type="button" id="installLocalModel" hidden>Download Qwen3 4B</button>
+                  <button type="button" id="stopModelDownload" hidden>Cancel download</button>
+                  <small id="modelStatus" role="status"></small>
+                </div>
+              </div>
+            </div>
             <div class="setting-switch-row"><span class="setting-option-copy"><b>Light appearance</b><small>Use a bright background and dark text</small></span><button type="button" class="setting-switch" id="lightAppearanceToggle" role="switch" aria-checked="false" aria-label="Light appearance"><span></span></button></div>
             <div class="setting-switch-row"><span class="setting-option-copy"><b>Send with Enter</b><small>Press Enter to send a message</small></span><button type="button" class="setting-switch is-on" id="enterSendToggle" role="switch" aria-checked="true" aria-label="Send messages with Enter"><span></span></button></div>
             <div class="setting-switch-row"><span class="setting-option-copy"><b>Prompt suggestions</b><small>Show starter ideas on the welcome screen</small></span><button type="button" class="setting-switch is-on" id="suggestionsToggle" role="switch" aria-checked="true" aria-label="Show prompt suggestions"><span></span></button></div>

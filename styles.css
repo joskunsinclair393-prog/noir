@@ -939,3 +939,8 @@ body.light-theme :is(.browser-view,.view-switch) {
 body.light-theme .plus-dialog .plus-close:hover { background: #ebe9e2; color: #231f18; }
 body.light-theme .plus-dialog .plus-checkout { background: #26231e; border-color: #26231e; color: #fff; }
 body.light-theme .plus-dialog .plus-checkout:disabled { background: #efede8; border-color: #dedad0; color: #534c3f; opacity: 1; }
+
+#stopLocalAI[hidden] { display: none; }
+#stopLocalAI { font-size: 12px; }
+.settings-model-control { min-width: 0; width: 100%; }
+.settings-model-control .model-tools { margin: 8px 0 0; }

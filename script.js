@@ -75,11 +75,12 @@
   if (desktopBridge?.localStatus) {
     $('checkLocalAI').hidden = false;
     $('checkLocalAI').onclick = () => void checkLocalAI();
+    $('stopModelDownload').onclick = () => void desktopBridge.localStop();
     $('installLocalModel').onclick = async () => {
       if (downloadActive || sending) return;
       downloadActive = true;
       $('installLocalModel').disabled = true;
-      $('stopLocalAI').hidden = false;
+      $('stopModelDownload').hidden = false;
       try {
         const result = await desktopBridge.localPull();
         await checkLocalAI();
@@ -88,7 +89,7 @@
       finally {
         downloadActive = false;
         $('installLocalModel').disabled = false;
-        $('stopLocalAI').hidden = true;
+        $('stopModelDownload').hidden = true;
       }
     };
     desktopBridge.onLocalProgress(progress => {
@@ -107,7 +108,7 @@
     if (activeChatId) startNewChat(false);
     input.value = draft;
     resize();
-    input.focus();
+    modelChoice.focus();
   };
   const pagePanel = $('desktopPagePanel');
   function attachDesktopPage(context) {
