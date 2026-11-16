@@ -398,8 +398,10 @@
     $('manageSubscription').hidden = !manageAvailable;
     $('settingsManageButton').hidden = !manageAvailable;
     $('plusManage').hidden = !manageAvailable;
-    $('settingsUpgradeButton').hidden = isPlus || data.plusCheckoutEnabled === false;
-    $('plusCheckout').hidden = isPlus || data.plusCheckoutEnabled === false;
+    $('settingsUpgradeButton').hidden = isPlus;
+    $('plusCheckout').hidden = isPlus;
+    $('plusCheckout').disabled = data.plusCheckoutEnabled !== true;
+    $('plusCheckoutStatus').hidden = isPlus || data.plusCheckoutEnabled === true;
     $('limitUpgrade').hidden = data.plusCheckoutEnabled === false;
     $('profileDailyUsage').hidden = isPlus || !data.dailyTokenLimit;
     $('profileDailyUsage').textContent = !isPlus && data.dailyTokenLimit ? `Today: ${numberFormat.format(data.dailyTokens || 0)} / ${numberFormat.format(data.dailyTokenLimit)} tokens` : '';
@@ -576,6 +578,7 @@
   }
 
   async function startCheckout() {
+    if (sessionInfo?.plusCheckoutEnabled !== true) return;
     const button = $('plusCheckout');
     button.disabled = true; button.textContent = 'Opening secure checkout…'; $('plusFeedback').textContent = '';
     try {
@@ -584,7 +587,7 @@
       location.assign(result.url);
     } catch (error) {
       $('plusFeedback').textContent = error.message;
-      button.textContent = 'Get NOIR Plus · $15 AUD/month'; button.disabled = false;
+      button.textContent = 'Subscribe · $15 AUD/month'; button.disabled = false;
     }
   }
 
@@ -1042,7 +1045,6 @@
   $('profilePlanAction').addEventListener('click', openPlus);
   $('settingsUpgradeButton').addEventListener('click', openPlus);
   $('plusClose').addEventListener('click', closePlus);
-  $('plusDismiss').addEventListener('click', closePlus);
   $('plusBackdrop').addEventListener('click', event => { if (event.target === $('plusBackdrop')) closePlus(); });
   $('plusCheckout').addEventListener('click', startCheckout);
   $('limitUpgrade').addEventListener('click', openPlus);
