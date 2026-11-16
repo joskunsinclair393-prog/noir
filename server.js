@@ -330,16 +330,34 @@ export function createNoirServer(options = {}) {
     if (!response.ok) throw Error('Analytics storage unavailable');
     return response;
   }
+  let lastAnalyticsError = -Infinity;
   function recordAiUsage(user, feature, model = '', succeeded = true, tokens = 0) {
     if (!analyticsEnabled || !user || !config.supabaseServiceRoleKey) return;
     void ownerDatabase('/rest/v1/rpc/noir_record_ai_usage', {
       p_user: user.id, p_feature: feature, p_model: typeof model === 'string' ? model.slice(0, 128) : '',
       p_succeeded: succeeded, p_tokens: Math.max(0, Math.min(2147483647, Number.isSafeInteger(tokens) ? tokens : 0)),
-    }).catch(() => {});
+    }).catch(() => {
+      if (Date.now() - lastAnalyticsError < 60_000) return;
+      lastAnalyticsError = Date.now();
+      console.warn('NOIR analytics write unavailable');
+    });
   }
-  async function readOwnerMetrics() {
+  const ownerMetricsCache = new Map();
+  function readOwnerMetrics(range) {
+    const cached = ownerMetricsCache.get(range);
+    if (cached?.expires > Date.now()) return cached.result;
+    const result = collectOwnerMetrics(range);
+    ownerMetricsCache.set(range, { result, expires: Date.now() + 45_000 });
+    return result;
+  }
+
+  async function collectOwnerMetrics(range) {
+    const started = Date.now();
+    const billingEnabled = config.stripeLiveEnabled && config.stripeMode === 'live' && config.plusBillingEnabled;
+    const today = new Date().toISOString().slice(0, 10);
+    const dayAgo = days => new Date(Date.parse(today) - days * 86400000).toISOString().slice(0, 10);
     const [metrics, registrations, subscribers] = await Promise.allSettled([
-      analyticsEnabled ? ownerDatabase('/rest/v1/rpc/noir_owner_analytics', {}).then(response => response.json()) : null,
+      analyticsEnabled ? ownerDatabase('/rest/v1/rpc/noir_owner_analytics', { p_days: range === 'all' ? 90 : Number(range) }).then(response => response.json()) : null,
       (async () => {
         const response = await ownerDatabase('/auth/v1/admin/users?page=1&per_page=1000');
         const { users, total } = await response.json();
@@ -347,22 +365,38 @@ export function createNoirServer(options = {}) {
         const count = Number.isSafeInteger(total) ? total : reported && /^\d+$/.test(reported) ? Number(reported) : null;
         if (!Array.isArray(users)) return null;
         const complete = count == null ? users.length < 1000 : count === users.length;
-        const days = new Map();
-        if (complete) for (const user of users) {
+        if (!complete) return { total: count, days: null };
+        const byDay = new Map();
+        for (const user of users) {
           const day = user.created_at?.slice(0, 10);
-          if (/^\d{4}-\d{2}-\d{2}$/.test(day || '')) days.set(day, (days.get(day) || 0) + 1);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(day || '')) byDay.set(day, (byDay.get(day) || 0) + 1);
         }
-        return { total: count ?? (complete ? users.length : null), days: [...days].sort().slice(-30).map(([day, requests]) => ({ day, requests })) };
+        const rows = [...byDay].sort().map(([day, requests]) => ({ day, requests }));
+        const totalSince = from => rows.reduce((sum, row) => sum + (row.day >= from ? row.requests : 0), 0);
+        const selected = rows.filter(row => range === 'all' || row.day >= dayAgo(Number(range) - 1));
+        const monthly = totalSince(dayAgo(29));
+        const previous = totalSince(dayAgo(59)) - monthly;
+        return {
+          total: count ?? users.length, days: selected, today: totalSince(today), week: totalSince(dayAgo(6)),
+          month: totalSince(today.slice(0, 7) + '-01'), growth: previous ? (monthly - previous) / previous : null,
+        };
       })(),
       (async () => {
-        if (!config.stripeLiveEnabled || config.stripeMode !== 'live') return null;
-        const response = await ownerDatabase('/rest/v1/noir_subscriptions?select=user_id&stripe_subscription_id=not.is.null&status=in.(active,trialing)&current_period_end=gt.' + encodeURIComponent(new Date().toISOString()),
+        if (!billingEnabled) return null;
+        const response = await ownerDatabase('/rest/v1/noir_subscriptions?select=user_id&stripe_subscription_id=not.is.null&status=eq.active&current_period_end=gt.' + encodeURIComponent(new Date().toISOString()),
           undefined, { prefer: 'count=exact', range: '0-0' });
         const count = response.headers.get('content-range')?.split('/').at(-1);
         return /^\d+$/.test(count || '') ? Number(count) : null;
       })(),
     ]);
-    return Object.fromEntries(Object.entries({ metrics, registrations, subscribers }).map(([key, result]) => [key, result.status === 'fulfilled' ? result.value : null]));
+    const value = result => result.status === 'fulfilled' ? result.value : null;
+    return {
+      metrics: value(metrics), registrations: value(registrations), subscribers: value(subscribers),
+      range, billingEnabled, analyticsEnabled, updatedAt: new Date().toISOString(),
+      health: registrations.status === 'rejected' || metrics.status === 'rejected' || subscribers.status === 'rejected'
+        ? 'Degraded' : value(registrations) ? 'Operational' : 'Unknown',
+      collectionMs: Date.now() - started,
+    };
   }
   let smartFreeModels = {};
   try { smartFreeModels = JSON.parse(process.env.NOIR_SMART_FREE_MODELS || '{}') || {}; } catch {}
@@ -912,7 +946,9 @@ export function createNoirServer(options = {}) {
         if (request.method !== 'GET' || !['/admin', '/api/admin/analytics'].includes(url.pathname)) {
           return sendJson(response, 404, { error: 'Admin route not found.' });
         }
-        const data = await readOwnerMetrics();
+        const requestedRange = url.searchParams.get('range');
+        const range = ['7', '30', '90', 'all'].includes(requestedRange) ? requestedRange : '30';
+        const data = await readOwnerMetrics(range);
         if (url.pathname !== '/admin') return sendJson(response, 200, data);
         response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         return response.end(ownerDashboard(data));
@@ -1504,7 +1540,7 @@ export function createNoirServer(options = {}) {
 
       if (request.method !== 'GET' && request.method !== 'HEAD') return sendJson(response, 405, { error: 'Method not allowed.' });
       const publicFiles = new Map([
-        ['/', 'index.html'], ['/index.html', 'index.html'], ['/styles.css', 'styles.css'], ['/script.js', 'script.js'], ['/browser.js', 'browser.js'], ['/logo.svg', 'logo.svg'], ['/logo.svg.png', 'logo.svg.png'], ['/robots.txt', 'robots.txt'], ['/sitemap.xml', 'sitemap.xml'],
+        ['/', 'index.html'], ['/index.html', 'index.html'], ['/styles.css', 'styles.css'], ['/script.js', 'script.js'], ['/browser.js', 'browser.js'], ['/owner-dashboard-client.js', 'owner-dashboard-client.js'], ['/logo.svg', 'logo.svg'], ['/logo.svg.png', 'logo.svg.png'], ['/robots.txt', 'robots.txt'], ['/sitemap.xml', 'sitemap.xml'],
       ]);
       const file = publicFiles.get(url.pathname);
       if (!file) return sendJson(response, 404, { error: 'Not found.' });

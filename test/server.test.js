@@ -798,6 +798,7 @@ test('Admin is restricted to the verified owner ID and requires a short-lived se
   const ownerId = '11111111-1111-4111-8111-111111111111';
   let confirmed = true;
   let metricsReads = 0;
+  const ranges = [];
   const server = realCreateNoirServer({
     dataFile: temporaryStore(),
     config: { authRequired: true, ownerId, analyticsEnabled: true, supabaseUrl: 'https://db.example',
@@ -811,6 +812,7 @@ test('Admin is restricted to the verified owner ID and requires a short-lived se
       if (url.includes('/auth/v1/admin/users')) return Response.json({ total: 1, users: [{ email: 'private@example.test', created_at: '2026-01-01T00:00:00Z' }] });
       if (url.includes('/rpc/noir_owner_analytics')) {
         metricsReads++;
+        ranges.push(JSON.parse(init.body).p_days);
         return Response.json({ daily: 1, models: [{ model: '<script>bad</script>', requests: 1 }] });
       }
       assert.fail('Unexpected call: ' + url);
@@ -836,11 +838,21 @@ test('Admin is restricted to the verified owner ID and requires a short-lived se
   const page = await fetch(base + '/admin', { headers });
   assert.equal(page.status, 200);
   const html = await page.text();
-  assert.match(html, /NOIR Admin Dashboard/);
+  assert.match(html, /NOIR Command Center/);
   assert.match(html, /&lt;script&gt;/);
   assert.doesNotMatch(html, /private@example.test/);
   const data = await (await fetch(base + '/api/admin/analytics', { headers })).json();
   assert.equal(data.registrations.total, 1);
+  assert.match(html, /NOIR Plus payments are not enabled yet/);
+  assert.match(html, /AUD.*0\.00/);
+  assert.equal(data.billingEnabled, false);
+  const weekly = await (await fetch(base + '/api/admin/analytics?range=7', { headers })).json();
+  assert.equal(weekly.range, '7');
+  const allTime = await (await fetch(base + '/api/admin/analytics?range=all', { headers })).json();
+  assert.equal(allTime.range, 'all');
+  const invalid = await (await fetch(base + '/api/admin/analytics?range=1', { headers })).json();
+  assert.equal(invalid.range, '30');
+  assert.deepEqual(ranges, [30, 7, 90]);
   assert.equal((await fetch(base + '/api/admin/session', { method: 'DELETE', headers })).status, 200);
   assert.equal((await fetch(base + '/admin', { headers })).status, 403);
 });
