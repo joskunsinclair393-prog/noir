@@ -1393,8 +1393,10 @@ export function createNoirServer(options = {}) {
               /^(?:(?:please|hey noir)[, ]+)?(?:(?:tell me|can you (?:tell me|check)|check|show me|list)\b[^.!?]{0,45}\b)?(?:what(?:'|’)?s new|what is new|(?:is there )?anything new|(?:the )?(?:latest|recent)(?:ly (?:modified|updated))? files|(?:any )?(?:new files|updates)) (?:with|on|in|from) (?:my |the )?google drive[?.!]*$/i.test(message);
             const calendarRequest = url.pathname === '/api/chat' && !pageContext && !attachments.length && !plugins.length &&
               /^(?:(?:please|hey noir)[, ]+)?(?:(?:can you )?(?:show me|tell me|check|list)\s+)?(?:(?:what(?:['’]s| is)|do i have anything) (?:coming up )?(?:on|in) (?:my )?(?:google )?calendar|(?:my |the )?(?:upcoming|next) (?:calendar )?events(?: (?:on|in|from) (?:my |the )?(?:google )?calendar)?|(?:my |the )?google calendar)[?.!]*$/i.test(message);
-            if (driveRequest || calendarRequest) {
-              const connector = calendarRequest ? 'Google Calendar' : 'Google Drive';
+            const gmailRequest = url.pathname === '/api/chat' && !pageContext && !attachments.length && !plugins.length &&
+              /^(?:(?:please|hey noir)[, ]+)?(?:(?:can you )?(?:show me|tell me|check|list)\s+)?(?:(?:what(?:['’]s| is) new|(?:is there )?anything new) (?:in|on|with) (?:my )?(?:gmail|gmail inbox|inbox)|(?:my |the )?(?:latest|recent) (?:gmail messages|emails)(?: (?:in|from) (?:my )?gmail)?|(?:my )?gmail inbox)[?.!]*$/i.test(message);
+            if (driveRequest || calendarRequest || gmailRequest) {
+              const connector = gmailRequest ? 'Gmail' : calendarRequest ? 'Google Calendar' : 'Google Drive';
               if (!user) throw Object.assign(new Error('Sign in to check ' + connector + '.'), { status: 401 });
               let rows;
               try { rows = await googleConnectors.read(user.id, connector); }
@@ -1403,7 +1405,12 @@ export function createNoirServer(options = {}) {
                 throw error;
               }
               const dates = new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone });
-              const text = calendarRequest
+              const text = gmailRequest
+                ? (rows.length ? 'Here are recent messages Google returned from your Gmail inbox:\n\n' + rows.map(([subject, sender, sent]) =>
+                  '- ' + [subject || '(No subject)', sender, Number.isFinite(Date.parse(sent)) ? dates.format(new Date(sent)) : '']
+                    .filter(Boolean).map(value => value.replace(/[`*]/g, '')).join(' · ')).join('\n') :
+                  'Gmail returned no messages from your inbox.')
+                : calendarRequest
                 ? (rows.length ? 'Here are the next events Google returned from your primary calendar:\n\n' + rows.map(([title, start]) => {
                   const when = /^\d{4}-\d{2}-\d{2}$/.test(start) ? start + ' (all day)' :
                     Number.isFinite(Date.parse(start)) ? dates.format(new Date(start)) : '';
@@ -1420,7 +1427,7 @@ export function createNoirServer(options = {}) {
               else chat.messages.push(userMessage);
               chat.messages.push(savedReply);
               if (isNewChat) {
-                chat.title = calendarRequest ? 'Upcoming Google Calendar events' : 'Google Drive updates';
+                chat.title = gmailRequest ? 'Recent Gmail messages' : calendarRequest ? 'Upcoming Google Calendar events' : 'Google Drive updates';
                 data.chats.push(chat);
               }
               chat.updatedAt = Date.now();
