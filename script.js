@@ -102,6 +102,12 @@
     });
   }
   modelChoice.onchange = () => {
+    if (modelChoice.value === 'challenge') {
+      modelChoice.value = 'auto';
+      if (sessionInfo?.subscription?.isPlus) void openChallenge();
+      else openPlus(true);
+      return;
+    }
     if (sending || checkingModel) return;
     const draft = input.value;
     if (activeChatId) startNewChat(false);
@@ -191,6 +197,7 @@
   let browserWorkspace;
 
   function saveAuthSession(session) {
+    if (!session && challengeDialog.open) challengeDialog.close();
     if (!session) cloudReply?.abort();
     if (!session) { localHistory = []; localHistoryKey = undefined; localStatusRequest++; if ($('connectorManager')) { $('connectorManager').hidden = true; $('connectorManagerOutput').textContent = ''; } document.body.classList.remove('desktop-chat-ready'); browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
     authSession = session;
@@ -324,7 +331,7 @@
     showAuthScreen();
   });
 
-  async function api(path, { onText, ...options } = {}) {
+  async function api(path, { onText, onEvent, ...options } = {}) {
     const request = () => fetch(path, {
       credentials: 'same-origin', ...options,
       headers: { ...(options.body ? { 'content-type': 'application/json' } : {}), ...(authSession?.access_token ? { authorization: `Bearer ${authSession.access_token}` } : {}), ...(options.headers || {}) },
@@ -334,7 +341,7 @@
       options.signal?.throwIfAborted();
       response = await request();
     }
-    if (response.ok && onText && response.headers.get('content-type')?.startsWith('application/x-ndjson')) {
+    if (response.ok && (onText || onEvent) && response.headers.get('content-type')?.startsWith('application/x-ndjson')) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -350,7 +357,8 @@
             const frame = JSON.parse(line);
             if (frame.error) throw Object.assign(new Error(frame.error), frame);
             if (frame.result) return frame.result;
-            if (typeof frame.text === 'string') onText(frame.text);
+            if (typeof frame.text === 'string') onText?.(frame.text);
+            if (frame.event) onEvent?.(frame.event);
           }
         }
         throw new Error('The response ended early. Please try again.');
@@ -438,7 +446,8 @@
     return Number.isNaN(date.valueOf()) ? 'your next billing date' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
   }
 
-  function openPlus() {
+  function openPlus(challenge = false) {
+    $('plusChallenge').hidden = challenge !== true;
     $('profileMenu').hidden = true;
     $('profileTrigger').setAttribute('aria-expanded', 'false');
     $('limitBackdrop').hidden = true;
@@ -453,6 +462,147 @@
     $('plusBackdrop').hidden = true;
     document.body.classList.remove('plus-open');
   }
+
+  const challengeDialog = $('challengeDialog');
+  let challengeRequest;
+  let challengeResult;
+  const challengeHistoryKey = () => authSession?.user?.id && 'noirChallenge:' + authSession.user.id;
+  function savedChallenges() {
+    try { return JSON.parse(localStorage.getItem(challengeHistoryKey()) || '[]'); }
+    catch { return []; }
+  }
+  function challengeItem(tag, text) {
+    const item = document.createElement(tag);
+    item.textContent = text;
+    return item;
+  }
+  function drawChallenge() {
+    const { answers, names, verdict, blind, vote } = challengeResult;
+    $('challengeAnswers').replaceChildren(...answers.map(answer => {
+      const card = document.createElement('article');
+      card.append(challengeItem('h3', blind && !vote ? 'Answer ' + answer.letter : names['ABCD'.indexOf(answer.letter)] || 'Answer ' + answer.letter));
+      card.append(challengeItem('p', answer.text || answer.error || 'Generating…'));
+      if (answer.text) {
+        const copy = challengeItem('button', 'Copy response');
+        copy.onclick = async () => {
+          try { await navigator.clipboard.writeText(answer.text); copy.textContent = 'Copied'; }
+          catch { copy.textContent = 'Could not copy'; }
+        };
+        card.append(copy);
+        if (blind && !vote && names.length) {
+          const button = challengeItem('button', 'Vote for Answer ' + answer.letter);
+          button.onclick = () => { challengeResult.vote = answer.letter; drawChallenge(); };
+          card.append(button);
+        }
+      }
+      return card;
+    }));
+    const summary = $('challengeVerdict');
+    summary.replaceChildren();
+    if (verdict) {
+      summary.append(challengeItem('h3', 'NOIR Judge · ' + (verdict.winners.length > 1 ? 'Tie' : 'Recommended winner') + ' · ' + verdict.winners.map(letter => 'Answer ' + letter).join(', ')),
+        challengeItem('p', verdict.explanation),
+        challengeItem('small', 'An AI assessment is not proof of factual correctness.'));
+      for (const review of verdict.reviews) summary.append(challengeItem('p',
+        'Answer ' + review.letter + ' · ' + review.score + '/100 · Strengths — ' + review.strengths + ' · Weaknesses — ' + review.weaknesses));
+    }
+    if (vote) summary.append(challengeItem('p', 'Your choice · Answer ' + vote + ' · ' + names['ABCD'.indexOf(vote)]));
+  }
+  function refreshChallengeHistory() {
+    $('challengeHistory').replaceChildren(...savedChallenges().map(saved => {
+      const item = document.createElement('li');
+      const button = challengeItem('button', saved.prompt.slice(0, 85));
+      button.onclick = () => {
+        if (challengeRequest) return;
+        challengeResult = saved;
+        drawChallenge();
+        $('challengeStatus').textContent = 'Saved challenge';
+        $('challengeSave').hidden = true;
+      };
+      item.append(button);
+      return item;
+    }));
+  }
+  async function openChallenge() {
+    if (challengeDialog.open) return;
+    challengeResult = undefined;
+    $('challengeAnswers').replaceChildren();
+    $('challengeVerdict').replaceChildren();
+    $('challengeModels').querySelectorAll('label').forEach(label => label.remove());
+    $('challengeSave').hidden = true;
+    $('challengeRun').disabled = true;
+    $('challengeStatus').textContent = 'Checking available models…';
+    refreshChallengeHistory();
+    challengeDialog.showModal();
+    try {
+      const { models } = await api('/api/challenge');
+      for (const { id, label } of models) {
+        const item = document.createElement('label');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.name = 'models';
+        checkbox.value = id;
+        checkbox.checked = true;
+        item.append(checkbox, ' ' + label);
+        $('challengeModels').append(item);
+      }
+      $('challengeRun').disabled = false;
+      $('challengeStatus').textContent = '';
+    } catch (error) { $('challengeStatus').textContent = error.message; }
+  }
+  $('challengeForm').onsubmit = async event => {
+    event.preventDefault();
+    if (challengeRequest) return;
+    const models = new FormData(event.target).getAll('models');
+    if (models.length < 2) { $('challengeStatus').textContent = 'Choose at least two models.'; return; }
+    const prompt = $('challengePrompt').value.trim();
+    if (!prompt) return;
+    const blind = $('challengeBlind').checked;
+    const controller = challengeRequest = new AbortController();
+    $('challengeModels').disabled = true;
+    $('challengeRun').disabled = true;
+    $('challengeStop').hidden = false;
+    $('challengeSave').hidden = true;
+    const names = blind ? [] : [...$('challengeModels').querySelectorAll('input:checked')].map(input => input.parentElement.textContent.trim());
+    challengeResult = { prompt, blind, names, answers: models.map((_, index) => ({ letter: 'ABCD'[index] })) };
+    drawChallenge();
+    $('challengeStatus').textContent = 'Waiting for model answers…';
+    try {
+      const result = await api('/api/challenge', {
+        method: 'POST', signal: controller.signal, body: JSON.stringify({ models, prompt, blind }),
+        onEvent(event) {
+          if (event.answer) challengeResult.answers['ABCD'.indexOf(event.answer.letter)] = event.answer;
+          if (event.judging) $('challengeStatus').textContent = 'NOIR Judge is comparing the answers…';
+          drawChallenge();
+        },
+      });
+      challengeResult = { ...result, prompt, blind };
+      drawChallenge();
+      $('challengeSave').hidden = !challengeHistoryKey() || !result.answers.some(answer => answer.text);
+      $('challengeStatus').textContent = result.verdict ? 'Challenge complete.' : 'Challenge ended without a judge recommendation.';
+    } catch (error) {
+      $('challengeStatus').textContent = controller.signal.aborted ? 'Challenge stopped.' : error.message;
+      challengeResult.answers = challengeResult.answers.map(answer => answer.text || answer.error ? answer : { ...answer, error: 'No response received.' });
+      drawChallenge();
+    } finally {
+      challengeRequest = undefined;
+      $('challengeModels').disabled = false;
+      $('challengeRun').disabled = false;
+      $('challengeStop').hidden = true;
+    }
+  };
+  $('challengeStop').onclick = () => challengeRequest?.abort();
+  challengeDialog.onclose = () => challengeRequest?.abort();
+  $('challengeSave').onclick = () => {
+    const key = challengeHistoryKey();
+    if (!key || !challengeResult) return;
+    try {
+      localStorage.setItem(key, JSON.stringify([challengeResult, ...savedChallenges()].slice(0, 20)));
+      refreshChallengeHistory();
+      $('challengeSave').hidden = true;
+      $('challengeStatus').textContent = 'Saved on this device.';
+    } catch { $('challengeStatus').textContent = 'Could not save this challenge.'; }
+  };
 
   function showDailyLimit(details = {}) {
     const resetAt = details.resetAt ? new Date(details.resetAt) : null;

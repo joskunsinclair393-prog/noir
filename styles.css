@@ -907,3 +907,25 @@ body.light-theme :is(.browser-view,.view-switch) {
 @media (prefers-reduced-motion: reduce) {
   .model-tools :is(select, button, option) { transition: none; }
 }
+
+#challengeDialog {
+  width: min(880px, calc(100% - 24px));
+  max-height: 88dvh;
+  overflow: auto;
+  background: Canvas;
+  color: CanvasText;
+  border: 1px solid color-mix(in srgb, CanvasText 25%, Canvas);
+  border-radius: 18px;
+  padding: clamp(14px, 4vw, 28px);
+}
+#challengeDialog::backdrop { background: #0008; }
+#challengeDialog form[method="dialog"] { float: right; }
+#challengeDialog h2 small { font-size: .55em; color: CanvasText; border: 1px solid currentColor; border-radius: 5px; padding: 3px 6px; }
+#challengeForm { display: grid; gap: 10px; }
+#challengeModels { display: flex; flex-wrap: wrap; gap: 8px 16px; border: 1px solid color-mix(in srgb, CanvasText 25%, Canvas); border-radius: 8px; }
+#challengePrompt { width: 100%; padding: 10px; font: inherit; }
+#challengeAnswers { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 275px), 1fr)); gap: 12px; }
+#challengeAnswers article { border: 1px solid color-mix(in srgb, CanvasText 20%, Canvas); border-radius: 10px; padding: 12px; }
+#challengeAnswers p { white-space: pre-wrap; overflow-wrap: anywhere; }
+#challengeDialog button { font: inherit; padding: 5px 9px; margin-inline-end: 6px; cursor: pointer; }
+#challengeDialog [hidden] { display: none; }

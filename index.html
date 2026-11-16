@@ -144,6 +144,7 @@
           <option value="future-claude" disabled>Claude · Coming soon</option>
           <option value="future-gemini" disabled>Gemini Premium · Coming soon</option>
           <option value="future-deepseek" disabled>DeepSeek · Coming soon</option>
+          <option value="challenge">🏆 NOIR Challenge 🔒 PLUS</option>
           </select>
         </div>
         <button type="button" id="checkLocalAI" hidden>Check Ollama</button>
@@ -326,6 +327,7 @@
     <div class="plus-eyebrow">A little more room to think</div>
     <h2 id="plusTitle">Meet NOIR Plus</h2>
     <p class="plus-intro">More room for longer days and deeper conversations.</p>
+    <p class="plus-intro" id="plusChallenge" hidden><strong>🏆 NOIR Challenge</strong> · One prompt. Four AIs. One winner.</p>
     <div class="plus-price"><strong>$15</strong><span>AUD <b>/ month</b><small>Monthly recurring subscription</small></span></div>
     <div class="plan-comparison" role="table" aria-label="Compare NOIR plans">
       <div class="comparison-head" role="row"><span role="columnheader">Included</span><span role="columnheader">Free</span><span role="columnheader">Plus</span></div>
@@ -340,6 +342,24 @@
     <button type="button" class="plus-dismiss" id="plusDismiss">Maybe later</button>
   </section>
 </div>
+<dialog id="challengeDialog" aria-labelledby="challengeTitle">
+  <form method="dialog"><button aria-label="Close challenge">Close</button></form>
+  <h2 id="challengeTitle">🏆 NOIR Challenge <small>PLUS</small></h2>
+  <p>One prompt. Four AIs. One winner.</p>
+  <form id="challengeForm">
+    <fieldset id="challengeModels"><legend>Choose two to four models</legend></fieldset>
+    <label><input id="challengeBlind" type="checkbox"> Blind Challenge</label>
+    <label for="challengePrompt">Your prompt</label>
+    <textarea id="challengePrompt" maxlength="2000" rows="3" required></textarea>
+    <button id="challengeRun" disabled>Run Challenge</button>
+    <button type="button" id="challengeStop" hidden>Stop Challenge</button>
+  </form>
+  <p id="challengeStatus" role="status"></p>
+  <div id="challengeAnswers"></div>
+  <div id="challengeVerdict"></div>
+  <button type="button" id="challengeSave" hidden>Save Challenge</button>
+  <details><summary>Challenge history on this device</summary><ul id="challengeHistory"></ul></details>
+</dialog>
 <div class="limit-backdrop" id="limitBackdrop" hidden>
   <section class="limit-dialog" role="alertdialog" aria-modal="true" aria-labelledby="limitTitle" aria-describedby="limitDescription">
     <div class="limit-icon" aria-hidden="true">◷</div>
