@@ -102,11 +102,6 @@
     });
   }
   modelChoice.onchange = () => {
-    if (modelChoice.value === 'challenge') {
-      modelChoice.value = 'auto';
-      showChallengeEntry();
-      return;
-    }
     if (sending || checkingModel) return;
     const draft = input.value;
     if (activeChatId) startNewChat(false);
@@ -445,8 +440,7 @@
     return Number.isNaN(date.valueOf()) ? 'your next billing date' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
   }
 
-  function openPlus(challenge = false) {
-    $('plusChallenge').hidden = challenge !== true;
+  function openPlus() {
     $('profileMenu').hidden = true;
     $('profileTrigger').setAttribute('aria-expanded', 'false');
     $('limitBackdrop').hidden = true;
@@ -456,13 +450,6 @@
     document.body.classList.add('plus-open');
     $('plusClose').focus({ preventScroll: true });
   }
-
-  function showChallengeEntry() {
-    if (sessionInfo?.subscription?.isPlus) void openChallenge();
-    else openPlus(true);
-  }
-  $('challengeEntry').addEventListener('click', showChallengeEntry);
-  $('authChallenge').addEventListener('click', () => openPlus(true));
 
   function closePlus() {
     $('plusBackdrop').hidden = true;
@@ -529,60 +516,30 @@
       return item;
     }));
   }
-  async function openChallenge() {
-    if (challengeDialog.open) return;
-    challengeResult = undefined;
-    $('challengeAnswers').replaceChildren();
-    $('challengeVerdict').replaceChildren();
-    $('challengeModels').querySelectorAll('label').forEach(label => label.remove());
-    $('challengeSave').hidden = true;
-    $('challengeRun').disabled = true;
+  async function openChallenge(prompt) {
+    if (challengeRequest || challengeDialog.open) return;
+    const controller = challengeRequest = new AbortController();
+    challengeResult = { prompt, blind: true, names: [], answers: [] };
+    drawChallenge();
     $('challengeStatus').textContent = 'Checking available models…';
     refreshChallengeHistory();
     challengeDialog.showModal();
-    try {
-      const { models } = await api('/api/challenge');
-      for (const { id, label } of models) {
-        const item = document.createElement('label');
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.name = 'models';
-        checkbox.value = id;
-        checkbox.checked = true;
-        item.append(checkbox, ' ' + label);
-        $('challengeModels').append(item);
-      }
-      $('challengeRun').disabled = false;
-      $('challengeStatus').textContent = '';
-    } catch (error) { $('challengeStatus').textContent = error.message; }
-  }
-  $('challengeForm').onsubmit = async event => {
-    event.preventDefault();
-    if (challengeRequest) return;
-    const models = new FormData(event.target).getAll('models');
-    if (models.length < 2) { $('challengeStatus').textContent = 'Choose at least two models.'; return; }
-    const prompt = $('challengePrompt').value.trim();
-    if (!prompt) return;
-    const blind = $('challengeBlind').checked;
-    const controller = challengeRequest = new AbortController();
-    $('challengeModels').disabled = true;
-    $('challengeRun').disabled = true;
     $('challengeStop').hidden = false;
     $('challengeSave').hidden = true;
-    const names = blind ? [] : [...$('challengeModels').querySelectorAll('input:checked')].map(input => input.parentElement.textContent.trim());
-    challengeResult = { prompt, blind, names, answers: models.map((_, index) => ({ letter: 'ABCD'[index] })) };
-    drawChallenge();
-    $('challengeStatus').textContent = 'Waiting for model answers…';
     try {
+      const { models } = await api('/api/challenge', { signal: controller.signal });
+      challengeResult.answers = models.map((_, index) => ({ letter: 'ABCD'[index] }));
+      drawChallenge();
+      $('challengeStatus').textContent = 'Waiting for model answers…';
       const result = await api('/api/challenge', {
-        method: 'POST', signal: controller.signal, body: JSON.stringify({ models, prompt, blind }),
+        method: 'POST', signal: controller.signal, body: JSON.stringify({ models: models.map(model => model.id), prompt, blind: true }),
         onEvent(event) {
           if (event.answer) challengeResult.answers['ABCD'.indexOf(event.answer.letter)] = event.answer;
           if (event.judging) $('challengeStatus').textContent = 'NOIR Judge is comparing the answers…';
           drawChallenge();
         },
       });
-      challengeResult = { ...result, prompt, blind };
+      challengeResult = { ...result, prompt, blind: true };
       drawChallenge();
       $('challengeSave').hidden = !challengeHistoryKey() || !result.answers.some(answer => answer.text);
       $('challengeStatus').textContent = result.verdict ? 'Challenge complete.' : 'Challenge ended without a judge recommendation.';
@@ -592,8 +549,6 @@
       drawChallenge();
     } finally {
       challengeRequest = undefined;
-      $('challengeModels').disabled = false;
-      $('challengeRun').disabled = false;
       $('challengeStop').hidden = true;
     }
   };
@@ -846,9 +801,11 @@
     return `<p>${source}</p>`.replace(/<p><\/p>/g, '').replace(/<p>(<h[234]>)/g, '$1').replace(/(<\/h[234]>)<br>/g, '$1').replace(/<p>(<ul>|<blockquote>|<pre)/g, '$1').replace(/(<\/ul>|<\/blockquote>|<\/pre>)<\/p>/g, '$1');
   }
 
-  function addMessage(role, text, usage = null, state = '', shouldScroll = true, attachmentNames = []) {
+  const messagePrompts = new WeakMap();
+  function addMessage(role, text, usage = null, state = '', shouldScroll = true, attachmentNames = [], replyPrompt) {
     const row = document.createElement('div');
     row.className = 'message ' + role + (state ? ' ' + state : '');
+    if (role === 'user') messagePrompts.set(row, text);
     if (role === 'assistant') {
       const mark = document.createElement('img'); mark.className = 'assistant-mark'; mark.src = 'logo.svg'; mark.alt = '';
       row.append(mark);
@@ -886,7 +843,17 @@
         const lastUser = [...messages.querySelectorAll('.message.user .bubble')].at(-1)?.textContent;
         if (lastUser && row === [...messages.querySelectorAll('.message.assistant:not(.typing):not(.error)')].at(-1)) send(lastUser, { regenerate: true });
       });
-      actions.append(copy, regenerate);
+      const challenge = document.createElement('button');
+      challenge.type = 'button';
+      challenge.textContent = '🏆 Challenge';
+      challenge.setAttribute('aria-label', 'Start a blind NOIR Challenge for this reply');
+      const originalPrompt = replyPrompt ?? messagePrompts.get([...messages.querySelectorAll('.message.user')].at(-1));
+      challenge.onclick = () => {
+        if (!sessionInfo?.subscription?.isPlus) openSettings('plan');
+        else if (!originalPrompt || originalPrompt.length > 2000) showNotice('Challenge uses the original message and supports up to 2,000 characters.');
+        else void openChallenge(originalPrompt);
+      };
+      actions.append(copy, regenerate, challenge);
       row.append(actions);
       row.querySelectorAll('.copy-code').forEach(button => button.addEventListener('click', async () => {
         const code = button.closest('.code-block')?.querySelector('code')?.textContent || '';
@@ -1276,7 +1243,7 @@
         messages.querySelector('.message.assistant:not(.typing):not(.error):last-of-type')?.remove();
         if (options.edit) [...messages.querySelectorAll('.message.user')].at(-1)?.remove();
       }
-      addMessage('assistant', result.chat.messages.at(-1).text);
+      addMessage('assistant', result.chat.messages.at(-1).text, null, '', true, [], value);
       updateChatSummary(result.chat);
       updateSession(result.session);
       if (sessionInfo?.provider.ready) showNotice('', false);
