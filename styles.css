@@ -960,3 +960,21 @@ body.light-theme .plus-dialog .plus-checkout:disabled { background: #efede8; bor
 .answer-model { display: block; margin-top: 6px; opacity: .75; font-size: 12px; overflow-wrap: anywhere; }
 #verifyReport p { white-space: pre-wrap; overflow-wrap: anywhere; }
 #activeProject[hidden], #personalizationForm[hidden], .projects-controls button[hidden] { display: none; }
+
+.projects-heading, .project-dialog-heading { display: flex; align-items: center; gap: 10px; }
+.projects-heading { font-weight: 650; }
+.project-folder { position: relative; display: inline-block; width: 16px; height: 11px; border: 1.5px solid currentColor; border-radius: 2px; }
+.project-folder::before { content: ''; position: absolute; width: 7px; height: 3px; left: -1.5px; top: -4px; border: 1.5px solid currentColor; border-bottom: 0; border-radius: 2px 2px 0 0; }
+#projectDialog { width: min(460px, calc(100% - 24px)); padding: clamp(16px, 4vw, 26px); border-color: color-mix(in srgb, CanvasText 18%, Canvas); box-shadow: 0 16px 60px #0004; }
+.project-dialog-heading { margin: 0 35px 20px 0; }
+.project-dialog-heading h2 { margin: 0; font-size: 22px; letter-spacing: -.025em; }
+.project-dialog-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: color-mix(in srgb, CanvasText 9%, Canvas); }
+#projectForm { gap: 15px; }
+#projectForm label { font-weight: 600; font-size: 13px; gap: 6px; }
+#projectForm label small { color: GrayText; font-weight: 400; margin-inline-start: 5px; }
+#projectForm :is(input,textarea) { width: 100%; padding: 9px 11px; font-weight: 400; border-color: color-mix(in srgb, CanvasText 20%, Canvas); }
+#projectForm textarea { resize: vertical; }
+.project-dialog-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+#projectForm [type="submit"] { margin-inline-start: auto; padding: 8px 14px; background: CanvasText; color: Canvas; font-weight: 650; }
+#projectForm [type="submit"]:hover:not(:disabled) { opacity: .85; }
+#projectStatus:empty { display: none; }

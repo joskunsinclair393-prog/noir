@@ -53,7 +53,7 @@
     <button type="button" class="brand home-button" id="homeButton" aria-label="Go to the NOIR home page"><img class="logo" src="logo.svg" alt=""><span>NOIR</span></button>
     <button class="newchat" id="newChat">＋ &nbsp; New chat</button>
     <div class="projects-controls" id="projectControls" hidden>
-      <label for="projectFilter">Projects</label>
+      <label class="projects-heading" for="projectFilter"><span class="project-folder" aria-hidden="true"></span>Projects</label>
       <select id="projectFilter"><option value="">All conversations</option></select>
       <button id="projectCreate" type="button">New project</button>
       <button id="projectEdit" type="button" hidden>Edit project</button>
@@ -370,12 +370,17 @@
 </div>
 <dialog id="projectDialog" class="account-feature-dialog" aria-labelledby="projectTitle">
   <form method="dialog"><button class="plus-close" aria-label="Close project">×</button></form>
-  <h2 id="projectTitle">Project</h2>
+  <header class="project-dialog-heading">
+    <span class="project-dialog-mark"><span class="project-folder" aria-hidden="true"></span></span>
+    <h2 id="projectTitle">Project</h2>
+  </header>
   <form id="projectForm" class="account-feature-form">
-    <label>Project name<input name="name" maxlength="80" required></label>
-    <label>Project instructions<textarea name="instructions" maxlength="2000" rows="3"></textarea></label>
-    <button type="submit">Save project</button>
-    <button type="button" id="projectDelete" hidden>Delete project</button>
+    <label>Project name<input name="name" maxlength="80" placeholder="e.g. School, work, or writing" required autofocus></label>
+    <label><span>Instructions <small>Optional</small></span><textarea name="instructions" maxlength="2000" rows="4" placeholder="Tell NOIR how to respond in this project."></textarea></label>
+    <div class="project-dialog-actions">
+      <button type="button" id="projectDelete" hidden>Delete project</button>
+      <button type="submit">Save project</button>
+    </div>
   </form>
   <p id="projectStatus" role="status"></p>
 </dialog>
