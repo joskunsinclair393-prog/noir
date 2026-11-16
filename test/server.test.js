@@ -883,3 +883,60 @@ test('Smart Route falls back from a limited free model to the free router only',
   assert.deepEqual(models, ['example/coder:free', 'openrouter/free']);
   assert.equal((await response.json()).chat.messages.at(-1).model, 'example/router-choice:free');
 });
+
+test('Chat checks recent Drive metadata only for the signed-in account and keeps file names out of saved history', async () => {
+  let grant;
+  let saved;
+  let driveReads = 0;
+  const account = 'drive-chat-user';
+  const server = realCreateNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: true, supabaseUrl: 'https://db.example', supabaseAnonKey: 'public', supabaseServiceRoleKey: 'private' },
+    connectorEnv: { GOOGLE_CONNECTOR_CLIENT_ID: 'client', GOOGLE_CONNECTOR_CLIENT_SECRET: 'secret', CONNECTOR_ENCRYPTION_KEY: Buffer.alloc(32, 42).toString('base64') },
+    fetchImpl: async (raw, init) => {
+      const url = new URL(raw);
+      if (url.pathname === '/auth/v1/user') return Response.json({ id: init.headers.authorization === 'Bearer owner' ? account : 'other-user' });
+      if (url.pathname.endsWith('/noir_subscriptions')) return Response.json([]);
+      if (url.pathname.endsWith('/noir_user_data')) {
+        if (init.method === 'POST') {
+          saved = JSON.parse(init.body).data;
+          return new Response(null, { status: 204 });
+        }
+        return Response.json(saved ? [{ data: saved }] : []);
+      }
+      if (url.pathname.endsWith('/noir_connector_grants')) {
+        if (init.method === 'POST') {
+          grant = JSON.parse(init.body);
+          return new Response(null, { status: 204 });
+        }
+        return Response.json(url.searchParams.get('user_id') === 'eq.' + account && grant ? [grant] : []);
+      }
+      if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'access', refresh_token: 'refresh', scope: 'https://www.googleapis.com/auth/drive.metadata.readonly' });
+      if (url.hostname === 'www.googleapis.com') {
+        driveReads++;
+        return Response.json({ files: [{ name: 'Private Drive fixture', modifiedTime: '2026-11-16T12:00:00Z' }] });
+      }
+      assert.fail('Unexpected request to ' + url.hostname + url.pathname);
+    },
+  });
+  const base = await listen(server);
+  const headers = { authorization: 'Bearer owner', 'content-type': 'application/json' };
+  const begin = await fetch(base + '/api/connectors/start', { method: 'POST', headers, body: JSON.stringify({ name: 'Google Drive' }) });
+  assert.equal(begin.status, 200);
+  const { authorizeUrl } = await begin.json();
+  const state = new URL(authorizeUrl).searchParams.get('state');
+  await fetch(base + '/oauth/google/connectors?state=' + state + '&code=test', {
+    redirect: 'manual', headers: { cookie: begin.headers.get('set-cookie').split(';')[0] },
+  });
+  assert.equal(grant.user_id, account);
+  const body = JSON.stringify({ message: 'tell me is there anything new with my google drive', stream: true });
+  const ask = headers => fetch(base + '/api/chat', { method: 'POST', headers, body });
+  assert.equal((await ask({ ...headers, authorization: 'Bearer other' })).status, 404);
+  const response = await ask(headers);
+  assert.equal(response.status, 200);
+  const reply = await response.json();
+  assert.match(reply.chat.messages.at(-1).text, /Private Drive fixture/);
+  assert.equal(reply.usage.totalTokens, 0);
+  assert.doesNotMatch(JSON.stringify(saved), /Private Drive fixture/);
+  assert.equal(driveReads, 1);
+});
