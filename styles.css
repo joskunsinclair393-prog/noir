@@ -926,3 +926,16 @@ body.light-theme :is(.browser-view,.view-switch) {
 #challengeAnswers p { white-space: pre-wrap; overflow-wrap: anywhere; }
 #challengeDialog button { font: inherit; padding: 5px 9px; margin-inline-end: 6px; cursor: pointer; }
 #challengeDialog [hidden] { display: none; }
+
+.plus-dialog .plus-close { border-radius: 50%; padding: 0; }
+.plus-close span {
+  width: 8px;
+  height: 8px;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  transform: translateX(1px) rotate(45deg);
+}
+.plus-dialog .plus-checkout:disabled { opacity: .72; cursor: default; filter: none; }
+body.light-theme .plus-dialog .plus-close:hover { background: #ebe9e2; color: #231f18; }
+body.light-theme .plus-dialog .plus-checkout { background: #26231e; border-color: #26231e; color: #fff; }
+body.light-theme .plus-dialog .plus-checkout:disabled { background: #efede8; border-color: #dedad0; color: #534c3f; opacity: 1; }

@@ -461,11 +461,6 @@
   const challengeDialog = $('challengeDialog');
   let challengeRequest;
   let challengeResult;
-  const challengeHistoryKey = () => authSession?.user?.id && 'noirChallenge:' + authSession.user.id;
-  function savedChallenges() {
-    try { return JSON.parse(localStorage.getItem(challengeHistoryKey()) || '[]'); }
-    catch { return []; }
-  }
   function challengeItem(tag, text) {
     const item = document.createElement(tag);
     item.textContent = text;
@@ -503,31 +498,14 @@
     }
     if (vote) summary.append(challengeItem('p', 'Your choice · Answer ' + vote + ' · ' + names['ABCD'.indexOf(vote)]));
   }
-  function refreshChallengeHistory() {
-    $('challengeHistory').replaceChildren(...savedChallenges().map(saved => {
-      const item = document.createElement('li');
-      const button = challengeItem('button', saved.prompt.slice(0, 85));
-      button.onclick = () => {
-        if (challengeRequest) return;
-        challengeResult = saved;
-        drawChallenge();
-        $('challengeStatus').textContent = 'Saved challenge';
-        $('challengeSave').hidden = true;
-      };
-      item.append(button);
-      return item;
-    }));
-  }
   async function openChallenge(prompt) {
     if (challengeRequest || challengeDialog.open) return;
     const controller = challengeRequest = new AbortController();
     challengeResult = { prompt, blind: true, names: [], answers: [] };
     drawChallenge();
     $('challengeStatus').textContent = 'Checking available models…';
-    refreshChallengeHistory();
     challengeDialog.showModal();
     $('challengeStop').hidden = false;
-    $('challengeSave').hidden = true;
     try {
       const { models } = await api('/api/challenge', { signal: controller.signal });
       challengeResult.answers = models.map((_, index) => ({ letter: 'ABCD'[index] }));
@@ -543,7 +521,6 @@
       });
       challengeResult = { ...result, prompt, blind: true };
       drawChallenge();
-      $('challengeSave').hidden = !challengeHistoryKey() || !result.answers.some(answer => answer.text);
       $('challengeStatus').textContent = result.verdict ? 'Challenge complete.' : 'Challenge ended without a judge recommendation.';
     } catch (error) {
       $('challengeStatus').textContent = controller.signal.aborted ? 'Challenge stopped.' : error.message;
@@ -556,17 +533,6 @@
   };
   $('challengeStop').onclick = () => challengeRequest?.abort();
   challengeDialog.onclose = () => challengeRequest?.abort();
-  $('challengeSave').onclick = () => {
-    const key = challengeHistoryKey();
-    if (!key || !challengeResult) return;
-    try {
-      localStorage.setItem(key, JSON.stringify([challengeResult, ...savedChallenges()].slice(0, 20)));
-      refreshChallengeHistory();
-      $('challengeSave').hidden = true;
-      $('challengeStatus').textContent = 'Saved on this device.';
-    } catch { $('challengeStatus').textContent = 'Could not save this challenge.'; }
-  };
-
   function showDailyLimit(details = {}) {
     const resetAt = details.resetAt ? new Date(details.resetAt) : null;
     $('limitResetTime').textContent = resetAt && !Number.isNaN(resetAt.valueOf())
@@ -587,7 +553,7 @@
       location.assign(result.url);
     } catch (error) {
       $('plusFeedback').textContent = error.message;
-      button.textContent = 'Subscribe · $15 AUD/month'; button.disabled = false;
+      button.textContent = 'Buy NOIR Plus · $15 AUD/month'; button.disabled = false;
     }
   }
 

@@ -322,7 +322,7 @@
 </div>
 <div class="plus-backdrop" id="plusBackdrop" hidden>
   <section class="plus-dialog" role="dialog" aria-modal="true" aria-labelledby="plusTitle">
-    <button type="button" class="plus-close" id="plusClose" aria-label="Close NOIR Plus">×</button>
+    <button type="button" class="plus-close" id="plusClose" aria-label="Go back from NOIR Plus" title="Go back"><span aria-hidden="true"></span></button>
     <h2 id="plusTitle">NOIR Plus</h2>
     <p class="plus-intro">Get access to NOIR Challenge when premium models are available.</p>
     <div class="plus-price"><strong>$15</strong><span>AUD <b>/ month</b><small>Monthly recurring subscription</small></span></div>
@@ -334,7 +334,7 @@
       <div role="row"><span role="cell">Blind NOIR Challenge</span><span role="cell">Plus required</span><b role="cell">When available</b></div>
     </div>
     <p class="plus-fair-use">Plus removes NOIR’s own daily quota and per-account message cap. Provider quotas, spending limits, model availability, and service-wide safeguards still apply.</p>
-    <button type="button" class="plus-button plus-checkout" id="plusCheckout" disabled>Subscribe · $15 AUD/month</button>
+    <button type="button" class="plus-button plus-checkout" id="plusCheckout" disabled>Buy NOIR Plus · $15 AUD/month</button>
     <p class="plus-fair-use" id="plusCheckoutStatus">Subscriptions are currently unavailable.</p>
     <button type="button" class="manage-button plus-manage" id="plusManage" hidden>Manage subscription</button>
     <p class="plus-feedback" id="plusFeedback" role="status" aria-live="polite"></p>
@@ -348,8 +348,6 @@
   <p id="challengeStatus" role="status"></p>
   <div id="challengeAnswers"></div>
   <div id="challengeVerdict"></div>
-  <button type="button" id="challengeSave" hidden>Save Challenge</button>
-  <details><summary>Challenge history on this device</summary><ul id="challengeHistory"></ul></details>
 </dialog>
 <div class="limit-backdrop" id="limitBackdrop" hidden>
   <section class="limit-dialog" role="alertdialog" aria-modal="true" aria-labelledby="limitTitle" aria-describedby="limitDescription">
