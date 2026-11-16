@@ -884,7 +884,8 @@ test('Smart Route falls back from a limited free model to the free router only',
   assert.equal((await response.json()).chat.messages.at(-1).model, 'example/router-choice:free');
 });
 
-test('Chat checks recent Drive metadata only for the signed-in account and keeps file names out of saved history', async () => {
+for (const connector of ['Google Drive', 'Google Calendar']) test('Chat checks ' + connector + ' only for the signed-in account without saving private results', async () => {
+  const calendar = connector === 'Google Calendar';
   let grant;
   let saved;
   let driveReads = 0;
@@ -911,9 +912,13 @@ test('Chat checks recent Drive metadata only for the signed-in account and keeps
         }
         return Response.json(url.searchParams.get('user_id') === 'eq.' + account && grant ? [grant] : []);
       }
-      if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'access', refresh_token: 'refresh', scope: 'https://www.googleapis.com/auth/drive.metadata.readonly' });
+      if (url.hostname === 'oauth2.googleapis.com') return Response.json({ access_token: 'access', refresh_token: 'refresh', scope: 'https://www.googleapis.com/auth/' + (calendar ? 'calendar.events.readonly' : 'drive.metadata.readonly') });
       if (url.hostname === 'www.googleapis.com') {
         driveReads++;
+        if (calendar) {
+          assert.match(url.pathname, /calendar\/v3\/calendars\/primary\/events/);
+          return Response.json({ items: [{ summary: 'Private Drive fixture', start: { date: '2026-11-17' } }] });
+        }
         return Response.json({ files: [{ name: 'Private Drive fixture', modifiedTime: '2026-11-16T12:00:00Z' }] });
       }
       assert.fail('Unexpected request to ' + url.hostname + url.pathname);
@@ -921,7 +926,7 @@ test('Chat checks recent Drive metadata only for the signed-in account and keeps
   });
   const base = await listen(server);
   const headers = { authorization: 'Bearer owner', 'content-type': 'application/json' };
-  const begin = await fetch(base + '/api/connectors/start', { method: 'POST', headers, body: JSON.stringify({ name: 'Google Drive' }) });
+  const begin = await fetch(base + '/api/connectors/start', { method: 'POST', headers, body: JSON.stringify({ name: connector }) });
   assert.equal(begin.status, 200);
   const { authorizeUrl } = await begin.json();
   const state = new URL(authorizeUrl).searchParams.get('state');
@@ -929,13 +934,14 @@ test('Chat checks recent Drive metadata only for the signed-in account and keeps
     redirect: 'manual', headers: { cookie: begin.headers.get('set-cookie').split(';')[0] },
   });
   assert.equal(grant.user_id, account);
-  const body = JSON.stringify({ message: 'tell me is there anything new with my google drive', stream: true });
+  const body = JSON.stringify({ message: calendar ? 'What’s on my calendar?' : 'tell me is there anything new with my google drive', stream: true });
   const ask = headers => fetch(base + '/api/chat', { method: 'POST', headers, body });
   assert.equal((await ask({ ...headers, authorization: 'Bearer other' })).status, 404);
   const response = await ask(headers);
   assert.equal(response.status, 200);
   const reply = await response.json();
   assert.match(reply.chat.messages.at(-1).text, /Private Drive fixture/);
+  if (calendar) assert.match(reply.chat.messages.at(-1).text, /2026-11-17 \(all day\)/);
   assert.equal(reply.usage.totalTokens, 0);
   assert.doesNotMatch(JSON.stringify(saved), /Private Drive fixture/);
   assert.equal(driveReads, 1);

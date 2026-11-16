@@ -1391,22 +1391,36 @@ export function createNoirServer(options = {}) {
             if (isNewChat) chat = { id: randomUUID(), title: 'New chat', updatedAt: Date.now(), totalTokens: 0, messages: [], ...(body.projectId && { projectId: body.projectId }) };
             const driveRequest = url.pathname === '/api/chat' && !pageContext && !attachments.length && !plugins.length &&
               /^(?:(?:please|hey noir)[, ]+)?(?:(?:tell me|can you (?:tell me|check)|check|show me|list)\b[^.!?]{0,45}\b)?(?:what(?:'|’)?s new|what is new|(?:is there )?anything new|(?:the )?(?:latest|recent)(?:ly (?:modified|updated))? files|(?:any )?(?:new files|updates)) (?:with|on|in|from) (?:my |the )?google drive[?.!]*$/i.test(message);
-            if (driveRequest) {
-              if (!user) throw Object.assign(new Error('Sign in to check Google Drive.'), { status: 401 });
-              const rows = await googleConnectors.read(user.id, 'Google Drive');
+            const calendarRequest = url.pathname === '/api/chat' && !pageContext && !attachments.length && !plugins.length &&
+              /^(?:(?:please|hey noir)[, ]+)?(?:(?:can you )?(?:show me|tell me|check|list)\s+)?(?:(?:what(?:['’]s| is)|do i have anything) (?:coming up )?(?:on|in) (?:my )?(?:google )?calendar|(?:my |the )?(?:upcoming|next) (?:calendar )?events(?: (?:on|in|from) (?:my |the )?(?:google )?calendar)?|(?:my |the )?google calendar)[?.!]*$/i.test(message);
+            if (driveRequest || calendarRequest) {
+              const connector = calendarRequest ? 'Google Calendar' : 'Google Drive';
+              if (!user) throw Object.assign(new Error('Sign in to check ' + connector + '.'), { status: 401 });
+              let rows;
+              try { rows = await googleConnectors.read(user.id, connector); }
+              catch (error) {
+                if (error.status === 404) throw Object.assign(new Error('Connect ' + connector + ' in Settings → Connectors, then ask again.'), { status: 404 });
+                throw error;
+              }
               const dates = new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone });
-              const text = rows.length ? 'Here are the most recently modified items Google Drive returned. These can include edits to existing files. The list is not a change log.\n\n' +
+              const text = calendarRequest
+                ? (rows.length ? 'Here are the next events Google returned from your primary calendar:\n\n' + rows.map(([title, start]) => {
+                  const when = /^\d{4}-\d{2}-\d{2}$/.test(start) ? start + ' (all day)' :
+                    Number.isFinite(Date.parse(start)) ? dates.format(new Date(start)) : '';
+                  return '- ' + (title || 'Untitled event').replace(/[`*]/g, '') + (when ? ' · ' + when : '');
+                }).join('\n') : 'Google Calendar returned no upcoming events from your primary calendar.')
+                : rows.length ? 'Here are the most recently modified items Google Drive returned. These can include edits to existing files. The list is not a change log.\n\n' +
                 rows.map(([name, , modified]) => '- ' + (name || 'Untitled').replace(/[`*]/g, '') +
                   (Number.isFinite(Date.parse(modified)) ? ' · ' + dates.format(new Date(modified)) : '')).join('\n') :
                 'Google Drive did not return any items for this connection.';
-              const savedReply = { role: 'assistant', text: 'Google Drive was checked. File names were shown in this session and weren’t saved in chat history.' };
+              const savedReply = { role: 'assistant', text: connector + ' was checked. The results were shown in this session and weren’t saved in chat history.' };
               const userMessage = { role: 'user', text: message };
               if (regenerate) chat.messages.pop();
               else if (edit) chat.messages.splice(-2, 2, userMessage);
               else chat.messages.push(userMessage);
               chat.messages.push(savedReply);
               if (isNewChat) {
-                chat.title = 'Google Drive updates';
+                chat.title = calendarRequest ? 'Upcoming Google Calendar events' : 'Google Drive updates';
                 data.chats.push(chat);
               }
               chat.updatedAt = Date.now();
