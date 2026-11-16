@@ -319,6 +319,7 @@
     finally { submit.disabled = !authConfig?.configured; }
   });
   $('profileSignOut').addEventListener('click', async () => {
+    if (sessionInfo?.ownerAccess) await api('/api/admin/session', { method: 'DELETE' }).catch(() => {});
     if (authConfig?.configured && authSession?.access_token) {
       try { await fetch(`${authConfig.supabaseUrl}/auth/v1/logout`, { method: 'POST', headers: { apikey: authConfig.supabaseAnonKey, authorization: `Bearer ${authSession.access_token}` } }); } catch {}
     }
@@ -374,6 +375,7 @@
 
   function updateSession(data) {
     sessionInfo = data;
+    $('ownerDashboard').hidden = data.ownerAccess !== true;
     projects = data.projects || [];
     $('projectControls').hidden = !authConfig?.required;
     renderProjects();
@@ -1188,6 +1190,12 @@
   $('sidebarToggle').addEventListener('click', () => setSidebar(!sidebarOpen));
   $('historySearch').addEventListener('input', renderChatHistory);
   const profileMenu = $('profileMenu');
+  $('ownerDashboard').onclick = async () => {
+    try {
+      await api('/api/admin/session', { method: 'POST' });
+      location.assign('/admin');
+    } catch (error) { showNotice(error.message); }
+  };
   $('profileTrigger').addEventListener('click', event => {
     event.stopPropagation(); profileMenu.hidden = !profileMenu.hidden;
     $('profileTrigger').setAttribute('aria-expanded', String(!profileMenu.hidden));

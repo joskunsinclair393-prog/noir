@@ -1,4 +1,5 @@
 import { generateFreeCloud } from './free-cloud.js';
+import { ownerDashboard } from './owner-dashboard.js';
 import { createGoogleConnectors } from './google-connectors.js';
 import { generateAdditional, providerJson, ProviderError, providers, readRoutingConfig, routeGeneration } from './ai-routing.js';
 export { ProviderError };
@@ -308,6 +309,61 @@ export function createNoirServer(options = {}) {
     publicAppUrl: String(env.publicAppUrl ?? process.env.PUBLIC_APP_URL ?? '').trim().replace(/\/$/, ''),
   };
   const premiumEnabled = config.paidAIEnabled && config.premiumModelAccessEnabled && config.allowRequests;
+  const ownerId = env.ownerId ?? process.env.NOIR_OWNER_USER_ID;
+  const ownerEnabled = config.authRequired && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(ownerId || '');
+  const analyticsEnabled = env.analyticsEnabled ?? bool(process.env.NOIR_ANALYTICS_ENABLED, false);
+  const adminTickets = new Map();
+  const adminCookie = '__Host-noir_admin';
+  const adminTTL = 300;
+  const adminCookieValue = (value, duration) => `${adminCookie}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${duration}`;
+  const isOwner = user => Boolean(ownerEnabled && user?.emailConfirmed && user.id === ownerId);
+
+  async function ownerDatabase(path, body, extraHeaders = {}) {
+    if (!config.supabaseServiceRoleKey) throw Error('Analytics storage unavailable');
+    const response = await (options.fetchImpl || fetch)(config.supabaseUrl + path, {
+      method: body === undefined ? 'GET' : 'POST',
+      redirect: 'error', signal: AbortSignal.timeout(4000),
+      headers: { authorization: 'Bearer ' + config.supabaseServiceRoleKey, apikey: config.supabaseServiceRoleKey,
+        'content-type': 'application/json', ...extraHeaders },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    });
+    if (!response.ok) throw Error('Analytics storage unavailable');
+    return response;
+  }
+  function recordAiUsage(user, feature, model = '', succeeded = true, tokens = 0) {
+    if (!analyticsEnabled || !user || !config.supabaseServiceRoleKey) return;
+    void ownerDatabase('/rest/v1/rpc/noir_record_ai_usage', {
+      p_user: user.id, p_feature: feature, p_model: typeof model === 'string' ? model.slice(0, 128) : '',
+      p_succeeded: succeeded, p_tokens: Math.max(0, Math.min(2147483647, Number.isSafeInteger(tokens) ? tokens : 0)),
+    }).catch(() => {});
+  }
+  async function readOwnerMetrics() {
+    const [metrics, registrations, subscribers] = await Promise.allSettled([
+      analyticsEnabled ? ownerDatabase('/rest/v1/rpc/noir_owner_analytics', {}).then(response => response.json()) : null,
+      (async () => {
+        const response = await ownerDatabase('/auth/v1/admin/users?page=1&per_page=1000');
+        const { users, total } = await response.json();
+        const reported = response.headers.get('x-total-count');
+        const count = Number.isSafeInteger(total) ? total : reported && /^\d+$/.test(reported) ? Number(reported) : null;
+        if (!Array.isArray(users)) return null;
+        const complete = count == null ? users.length < 1000 : count === users.length;
+        const days = new Map();
+        if (complete) for (const user of users) {
+          const day = user.created_at?.slice(0, 10);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(day || '')) days.set(day, (days.get(day) || 0) + 1);
+        }
+        return { total: count ?? (complete ? users.length : null), days: [...days].sort().slice(-30).map(([day, requests]) => ({ day, requests })) };
+      })(),
+      (async () => {
+        if (!config.stripeLiveEnabled || config.stripeMode !== 'live') return null;
+        const response = await ownerDatabase('/rest/v1/noir_subscriptions?select=user_id&stripe_subscription_id=not.is.null&status=in.(active,trialing)&current_period_end=gt.' + encodeURIComponent(new Date().toISOString()),
+          undefined, { prefer: 'count=exact', range: '0-0' });
+        const count = response.headers.get('content-range')?.split('/').at(-1);
+        return /^\d+$/.test(count || '') ? Number(count) : null;
+      })(),
+    ]);
+    return Object.fromEntries(Object.entries({ metrics, registrations, subscribers }).map(([key, result]) => [key, result.status === 'fulfilled' ? result.value : null]));
+  }
   let smartFreeModels = {};
   try { smartFreeModels = JSON.parse(process.env.NOIR_SMART_FREE_MODELS || '{}') || {}; } catch {}
   const paidRoutingOnly = premiumEnabled && config.paidRoutingOnly;
@@ -742,6 +798,7 @@ export function createNoirServer(options = {}) {
       freeCloudAvailable: Boolean(config.openRouterFreeKey),
       plusCheckoutEnabled: Boolean(config.plusBillingEnabled && stripeModeReady()),
       smartRouting: routingSummary(user, subscription),
+      ownerAccess: isOwner(user),
       projects: data.projects || [],
       personalization: data.personalization || {},
       pluginUsage: data.pluginUsage || { fileAnalyses: 0, webSearches: 0 },
@@ -779,7 +836,15 @@ export function createNoirServer(options = {}) {
     if (!premiumEnabled && options.generate && !freeSelected) return options.generate({ ...args, provider: config.provider });
     if (!premiumEnabled || freeSelected) {
       if (!config.openRouterFreeKey) throw Object.assign(new Error('Free cloud chat is not configured. Desktop users can select NOIR Local once Ollama is ready.'), { status: 503, code: 'free_cloud_unavailable' });
-      return generateFreeCloud({ ...args, apiKey: config.openRouterFreeKey, onText, preferredModel });
+      let streamed = false;
+      const request = { ...args, apiKey: config.openRouterFreeKey, preferredModel,
+        onText: onText && (text => { streamed = true; onText(text); }) };
+      try { return await generateFreeCloud(request); }
+      catch (error) {
+        if (!/^[a-z0-9_.-]+\/[a-z0-9_.-]+:free$/i.test(preferredModel || '') || streamed ||
+            signal?.aborted || !(error instanceof ProviderError) || ![404, 429, 500, 502, 503].includes(error.status)) throw error;
+        return generateFreeCloud({ ...request, preferredModel: undefined });
+      }
     }
     if (routingUser) return routeGeneration({
       config: routingConfig, args, signal,
@@ -821,6 +886,37 @@ export function createNoirServer(options = {}) {
 
     const url = new URL(request.url, `http://${request.headers.host || '127.0.0.1'}`);
     try {
+      if (url.pathname === '/admin' || url.pathname.startsWith('/api/admin/')) {
+        response.setHeader('x-robots-tag', 'noindex, nofollow');
+        response.setHeader('cache-control', 'no-store');
+        response.setHeader('vary', 'Cookie, Authorization');
+        let ticket;
+        try { ticket = cookieValue(request, adminCookie); } catch {}
+        const create = url.pathname === '/api/admin/session' && request.method === 'POST' && sameOrigin(request);
+        const existing = adminTickets.get(ticket);
+        const authorization = create ? request.headers.authorization : existing?.expires > Date.now() ? existing.authorization : null;
+        const user = ownerEnabled && authorization ? await authenticatedUser({ headers: { authorization } }).catch(() => null) : null;
+        if (!isOwner(user)) return sendJson(response, 403, { error: 'Owner access required.' });
+        if (url.pathname === '/api/admin/session' && request.method === 'DELETE' && sameOrigin(request)) {
+          adminTickets.delete(ticket);
+          return sendJson(response, 200, {}, { 'set-cookie': adminCookieValue('', 0) });
+        }
+        checkRateLimit('admin:' + user.id, false);
+        if (create) {
+          // Only one short-lived ticket is needed on this single-instance service.
+          adminTickets.clear();
+          const next = randomBytes(32).toString('hex');
+          adminTickets.set(next, { authorization, expires: Date.now() + adminTTL * 1000 });
+          return sendJson(response, 200, {}, { 'set-cookie': adminCookieValue(next, adminTTL) });
+        }
+        if (request.method !== 'GET' || !['/admin', '/api/admin/analytics'].includes(url.pathname)) {
+          return sendJson(response, 404, { error: 'Admin route not found.' });
+        }
+        const data = await readOwnerMetrics();
+        if (url.pathname !== '/admin') return sendJson(response, 200, data);
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        return response.end(ownerDashboard(data));
+      }
       if (request.method === 'POST' && url.pathname === '/api/stripe/webhook') {
         if (!stripeModeReady() || !config.supabaseServiceRoleKey) return sendJson(response, 503, { error: 'NOIR billing is not configured.', code: 'billing_not_configured' });
         const payload = await readRawBody(request);
@@ -889,6 +985,7 @@ export function createNoirServer(options = {}) {
           if (!fields.every(field => typeof report?.[field] === 'string' && report[field].trim())) {
             return sendJson(response, 502, { error: 'The model did not return a complete Verify report.' });
           }
+          recordAiUsage(accountUser, 'verify', reply.model, true, reply.usage?.totalTokens);
           return sendJson(response, 200, { report: Object.fromEntries(fields.map(field => [field, report[field].slice(0, 3000)])), model: reply.model });
         }
         if (request.method === 'POST' && ['/api/projects', '/api/personalization'].includes(url.pathname)) {
@@ -1002,6 +1099,7 @@ export function createNoirServer(options = {}) {
           }
           if (response.destroyed) return;
           if (signal.aborted) return response.end(JSON.stringify({ error: 'The challenge timed out.' }) + '\n');
+          recordAiUsage(accountUser, 'challenge', '', completed.length > 0, completed.reduce((sum, answer) => sum + (answer.usage?.totalTokens || 0), 0));
           return response.end(JSON.stringify({ result: { answers, verdict, names: ids.map(id => competitors.find(provider => provider.id === id).label) } }) + '\n');
         }
         if (request.method === 'POST' && ['/api/connectors/start', '/api/connectors/read', '/api/connectors/disconnect'].includes(url.pathname)) {
@@ -1360,6 +1458,7 @@ export function createNoirServer(options = {}) {
                 project?.instructions || data.personalization ? preferences : '', category ? smartFreeModels[category] : undefined);
             }
             catch (error) {
+              if (!disconnect.signal.aborted && !taskSignal?.aborted) recordAiUsage(user, smartRoute ? 'smart-route' : 'chat', '', false);
               if (!signal.aborted) throw error;
             }
             if (signal.aborted) {
@@ -1394,6 +1493,7 @@ export function createNoirServer(options = {}) {
             if (config.creditsEnabled && !unlimitedAccess && !isPlus) data.credits -= config.creditsPerMessage;
             if (config.authRequired) await persistAccountData(accountUser.id, data);
             else saveStore();
+            recordAiUsage(user, smartRoute ? 'smart-route' : 'chat', generated.model, true, usage.totalTokens);
             return { chat: assistantChat(chat), usage, routing: generated.routing || (routing.enabled ? { provider: providerInfo().label, switched: false } : null), session: sessionSummary(data, user, subscription) };
           });
           if (response.headersSent) return response.end(JSON.stringify({ result }) + '\n');

@@ -794,3 +794,80 @@ test('free cloud delivers upstream deltas before completion and commits only com
   assert.equal(saved.chats.length, 1);
   assert.equal(saved.session.usage.totalTokens, 15);
 });
+test('Admin is restricted to the verified owner ID and requires a short-lived session', async () => {
+  const ownerId = '11111111-1111-4111-8111-111111111111';
+  let confirmed = true;
+  let metricsReads = 0;
+  const server = realCreateNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: true, ownerId, analyticsEnabled: true, supabaseUrl: 'https://db.example',
+      supabaseAnonKey: 'anon', supabaseServiceRoleKey: 'private' },
+    fetchImpl: async (url, init) => {
+      if (url.includes('/auth/v1/user')) {
+        const owner = init.headers.authorization === 'Bearer owner';
+        return Response.json({ id: owner ? ownerId : '22222222-2222-4222-8222-222222222222',
+          email: 'same@example.test', email_confirmed_at: owner && !confirmed ? null : '2026-01-01' });
+      }
+      if (url.includes('/auth/v1/admin/users')) return Response.json({ total: 1, users: [{ email: 'private@example.test', created_at: '2026-01-01T00:00:00Z' }] });
+      if (url.includes('/rpc/noir_owner_analytics')) {
+        metricsReads++;
+        return Response.json({ daily: 1, models: [{ model: '<script>bad</script>', requests: 1 }] });
+      }
+      assert.fail('Unexpected call: ' + url);
+    },
+  });
+  const base = await listen(server);
+  for (const path of ['/admin', '/api/admin/analytics']) {
+    assert.equal((await fetch(base + path)).status, 403);
+    assert.equal((await fetch(base + path, { headers: { authorization: 'Bearer ordinary', cookie: '__Host-noir_admin=forged' } })).status, 403);
+  }
+  const exchange = who => fetch(base + '/api/admin/session', { method: 'POST', headers: { authorization: 'Bearer ' + who } });
+  assert.equal((await exchange('ordinary')).status, 403);
+  confirmed = false;
+  assert.equal((await exchange('owner')).status, 403);
+  assert.equal(metricsReads, 0);
+  confirmed = true;
+  const issued = await exchange('owner');
+  assert.equal(issued.status, 200);
+  const setCookie = issued.headers.get('set-cookie');
+  assert.match(setCookie, /HttpOnly; Secure; SameSite=Strict; Max-Age=300/);
+  assert.doesNotMatch(setCookie, /Bearer|owner=/);
+  const headers = { cookie: setCookie.split(';')[0] };
+  const page = await fetch(base + '/admin', { headers });
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /NOIR Admin Dashboard/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /private@example.test/);
+  const data = await (await fetch(base + '/api/admin/analytics', { headers })).json();
+  assert.equal(data.registrations.total, 1);
+  assert.equal((await fetch(base + '/api/admin/session', { method: 'DELETE', headers })).status, 200);
+  assert.equal((await fetch(base + '/admin', { headers })).status, 403);
+});
+
+test('Smart Route falls back from a limited free model to the free router only', async t => {
+  const previous = process.env.NOIR_SMART_FREE_MODELS;
+  process.env.NOIR_SMART_FREE_MODELS = JSON.stringify({ coding: 'example/coder:free' });
+  t.after(() => {
+    if (previous === undefined) delete process.env.NOIR_SMART_FREE_MODELS;
+    else process.env.NOIR_SMART_FREE_MODELS = previous;
+  });
+  const models = [];
+  const server = realCreateNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: false, creditsEnabled: false, paidAIEnabled: false, premiumModelAccessEnabled: false, openRouterFreeKey: 'fixture' },
+    fetchImpl: async (url, init) => {
+      assert.match(url, /openrouter\.ai/);
+      models.push(JSON.parse(init.body).model);
+      if (models.length === 1) return Response.json({}, { status: 429 });
+      return Response.json({ model: 'example/router-choice:free', choices: [{ message: { content: 'Reply' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 } });
+    },
+  });
+  const base = await listen(server);
+  const response = await fetch(base + '/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ modelChoice: 'smart-route', message: 'Debug this Python code' }) });
+  assert.equal(response.status, 200);
+  assert.deepEqual(models, ['example/coder:free', 'openrouter/free']);
+  assert.equal((await response.json()).chat.messages.at(-1).model, 'example/router-choice:free');
+});
