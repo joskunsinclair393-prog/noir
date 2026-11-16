@@ -119,7 +119,7 @@ export async function routeGeneration({ config, args, reserve, generate, signal 
     try {
       const answer = await generate(provider, { ...args, maxOutputTokens: size });
       console.info('[NOIR routing]', provider.id, 'success', answer.usage.inputTokens, answer.usage.outputTokens, cost);
-      return { ...answer, routing: { provider: provider.label, switched: attempts > 1 } };
+      return { ...answer, model: provider.model, providerId: provider.id, routing: { provider: provider.label, switched: attempts > 1 } };
     } catch (error) {
       console.info('[NOIR routing]', provider.id, 'failure', error instanceof ProviderError ? error.status : 'transport', cost);
       if (signal.aborted || !(error instanceof ProviderError && error.retryable) &&

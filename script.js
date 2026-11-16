@@ -18,6 +18,7 @@
   app.hidden = true;
   let activeChatId = null;
   let chats = [];
+  let projects = [];
   let sessionInfo = null;
   let integrationsInfo = null;
   let sending = false;
@@ -373,6 +374,14 @@
 
   function updateSession(data) {
     sessionInfo = data;
+    projects = data.projects || [];
+    $('projectControls').hidden = !authConfig?.required;
+    renderProjects();
+    $('personalizationForm').hidden = !authConfig?.required;
+    for (const field of $('personalizationForm').elements) {
+      if (field.name) field.value = data.personalization?.[field.name] ?? (field.name === 'instructions' ? '' : 'default');
+    }
+    modelChoice.querySelector('[value="smart-route"]').disabled = !data.freeCloudAvailable;
     const freeCloud = modelChoice.querySelector('[value="free-cloud"]');
     freeCloud.disabled = !data.freeCloudAvailable;
     freeCloud.textContent = 'Free cloud · OpenRouter' + (data.freeCloudAvailable ? ' (quota limited)' : ' (not configured)');
@@ -443,7 +452,10 @@
     return Number.isNaN(date.valueOf()) ? 'your next billing date' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
   }
 
-  function openPlus() {
+  function openPlus(feature) {
+    $('plusIntro').textContent = feature === 'verify'
+      ? 'NOIR Verify double-checks AI answers for possible errors and missing evidence.'
+      : 'Get access to NOIR Challenge when premium models are available.';
     $('profileMenu').hidden = true;
     $('profileTrigger').setAttribute('aria-expanded', 'false');
     $('limitBackdrop').hidden = true;
@@ -600,12 +612,110 @@
     try { return localStorage.getItem('noirActiveChatId'); } catch { return null; }
   }
 
+  function renderProjects() {
+    const filter = $('projectFilter');
+    const previous = filter.value;
+    filter.replaceChildren(new Option('All conversations', ''), ...projects.map(project => new Option(project.name, project.id)));
+    if (projects.some(project => project.id === previous)) filter.value = previous;
+    $('projectEdit').hidden = !filter.value;
+  }
+  async function updateProjects(body) {
+    const result = await api('/api/projects', { method: 'POST', body: JSON.stringify(body) });
+    projects = result.projects;
+    chats = [...result.chats, ...localHistory];
+    renderProjects();
+    renderChatHistory();
+  }
+  $('projectFilter').onchange = () => {
+    $('projectEdit').hidden = !$('projectFilter').value;
+    renderChatHistory();
+  };
+  let editingProjectId;
+  function editProject(project) {
+    editingProjectId = project?.id;
+    $('projectTitle').textContent = project ? 'Edit project' : 'New project';
+    $('projectForm').elements.name.value = project?.name || '';
+    $('projectForm').elements.instructions.value = project?.instructions || '';
+    $('projectDelete').hidden = !project;
+    $('projectStatus').textContent = '';
+    $('projectDialog').showModal();
+  }
+  $('projectCreate').onclick = () => editProject();
+  $('projectEdit').onclick = () => editProject(projects.find(project => project.id === $('projectFilter').value));
+  $('projectForm').onsubmit = async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('[type="submit"]');
+    button.disabled = true;
+    try {
+      await updateProjects({ action: 'save', id: editingProjectId, ...Object.fromEntries(new FormData(form)) });
+      $('projectDialog').close();
+    } catch (error) { $('projectStatus').textContent = error.message; }
+    finally { button.disabled = false; }
+  };
+  $('projectDelete').onclick = async () => {
+    if (!window.confirm('Delete this project? Its conversations will be kept.')) return;
+    const button = $('projectDelete');
+    button.disabled = true;
+    try {
+      await updateProjects({ action: 'delete', id: editingProjectId });
+      $('projectDialog').close();
+    } catch (error) { $('projectStatus').textContent = error.message; }
+    finally { button.disabled = false; }
+  };
+  $('personalizationForm').onsubmit = async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('[type="submit"]');
+    button.disabled = true;
+    try {
+      await api('/api/personalization', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+      $('personalizationStatus').textContent = 'Preferences saved.';
+    } catch (error) { $('personalizationStatus').textContent = error.message; }
+    finally { button.disabled = false; }
+  };
+
+  const verifyDialog = $('verifyDialog');
+  let verifyRequest;
+  verifyDialog.onclose = () => verifyRequest?.abort();
+  async function verifyAnswer(answer, question) {
+    if (!sessionInfo?.subscription?.isPlus) {
+      openPlus('verify');
+      return;
+    }
+    if (!question || !activeChatId || activeChatId.startsWith('local-')) {
+      showNotice('Verify is available for saved website answers.');
+      return;
+    }
+    if (verifyRequest || verifyDialog.open) return;
+    const controller = verifyRequest = new AbortController();
+    const target = $('verifyReport');
+    target.replaceChildren();
+    $('verifyStatus').textContent = 'Checking the answer…';
+    verifyDialog.showModal();
+    try {
+      const { report, model } = await api('/api/verify', {
+        method: 'POST', signal: controller.signal, body: JSON.stringify({ chatId: activeChatId, answer, question }),
+      });
+      const labels = { assessment: 'Overall assessment', claims: 'Claims checked', potentialErrors: 'Potential errors',
+        missingEvidence: 'Missing evidence', corrections: 'Suggested corrections', uncertainty: 'Remaining uncertainty' };
+      for (const [field, label] of Object.entries(labels)) target.append(challengeItem('h3', label), challengeItem('p', report[field]));
+      $('verifyStatus').textContent = model ? 'Reviewed by ' + model : 'Review complete.';
+    } catch (error) { if (!controller.signal.aborted) $('verifyStatus').textContent = error.message; }
+    finally { verifyRequest = undefined; }
+  }
+
   function renderChatHistory() {
     if (desktopBridge) $('desktopChatTitle').textContent = chats.find(chat => chat.id === activeChatId)?.title || 'New conversation';
     const list = $('chatHistory');
     list.replaceChildren();
     const query = ($('historySearch')?.value || '').trim().toLocaleLowerCase();
-    const visibleChats = [...chats].filter(chat => chat.title.toLocaleLowerCase().includes(query)).sort((a, b) => b.updatedAt - a.updatedAt);
+    const projectId = $('projectFilter').value;
+    const visibleChats = [...chats].filter(chat => (!projectId || chat.projectId === projectId) && chat.title.toLocaleLowerCase().includes(query)).sort((a, b) => b.updatedAt - a.updatedAt);
+    const project = projects.find(item => item.id === (activeChatId ? chats.find(chat => chat.id === activeChatId)?.projectId : projectId));
+    $('newChat').textContent = projectId ? '＋ New project chat' : '＋ New chat';
+    $('activeProject').hidden = !project;
+    $('activeProject').textContent = project ? 'Project · ' + project.name : '';
     visibleChats.forEach(chat => {
       const row = document.createElement('div');
       row.className = 'chat-history-row' + (chat.id === activeChatId ? ' is-active' : '');
@@ -650,6 +760,18 @@
         optionsButton.setAttribute('aria-expanded', 'false');
         deleteChat(chat);
       });
+      if (authConfig?.required && !localHistory.some(item => item.id === chat.id) && projects.length) {
+        const move = document.createElement('select');
+        move.className = 'project-move';
+        move.setAttribute('aria-label', 'Move conversation to project');
+        move.append(new Option('Unassigned', ''), ...projects.map(project => new Option(project.name, project.id)));
+        move.value = chat.projectId || '';
+        move.onchange = async () => {
+          try { await updateProjects({ action: 'move', chatId: chat.id, id: move.value || null }); }
+          catch (error) { move.value = chat.projectId || ''; showNotice(error.message); }
+        };
+        menu.append(move);
+      }
       menu.append(deleteButton);
       optionsWrap.append(optionsButton, menu);
       row.append(button, optionsWrap);
@@ -772,7 +894,7 @@
   }
 
   const messagePrompts = new WeakMap();
-  function addMessage(role, text, usage = null, state = '', shouldScroll = true, attachmentNames = [], replyPrompt) {
+  function addMessage(role, text, usage = null, state = '', shouldScroll = true, attachmentNames = [], replyPrompt, model) {
     const row = document.createElement('div');
     row.className = 'message ' + role + (state ? ' ' + state : '');
     if (role === 'user') messagePrompts.set(row, text);
@@ -823,8 +945,16 @@
         else if (!originalPrompt || originalPrompt.length > 2000) showNotice('Challenge uses the original message and supports up to 2,000 characters.');
         else void openChallenge(originalPrompt);
       };
-      actions.append(copy, regenerate, challenge);
+      const verify = challengeItem('button', 'Verify Answer · PLUS');
+      verify.type = 'button';
+      verify.onclick = () => void verifyAnswer(text, originalPrompt);
+      actions.append(copy, regenerate, challenge, verify);
       row.append(actions);
+      if (model) {
+        const attribution = challengeItem('small', 'Powered by ' + model);
+        attribution.className = 'answer-model';
+        bubble.append(attribution);
+      }
       row.querySelectorAll('.copy-code').forEach(button => button.addEventListener('click', async () => {
         const code = button.closest('.code-block')?.querySelector('code')?.textContent || '';
         await navigator.clipboard?.writeText(code); button.textContent = 'Copied'; setTimeout(() => { button.textContent = 'Copy'; }, 1200);
@@ -880,7 +1010,8 @@
     try {
       const local = localHistory.find(chat => chat.id === id);
       const { chat } = local ? { chat: local } : await api(`/api/chats/${encodeURIComponent(id)}`);
-      modelChoice.value = local ? 'local:' + chat.model : 'auto';
+      if (local) modelChoice.value = 'local:' + chat.model;
+      else if (modelChoice.value.startsWith('local:')) modelChoice.value = 'auto';
       if (desktopPage) attachDesktopPage(undefined);
       editingLastMessage = false;
       activeChatId = chat.id;
@@ -891,7 +1022,8 @@
       }
       rememberActiveChat(activeChatId);
       messages.replaceChildren();
-      chat.messages.forEach(item => addMessage(item.role, item.text, item.role === 'user' ? item.usage : null, '', false, item.attachments?.map(file => file.name) || []));
+      chat.messages.forEach(item => addMessage(item.role, item.text, item.role === 'user' ? item.usage : null, '', false,
+        item.attachments?.map(file => file.name) || [], undefined, item.smartRoute ? item.model : undefined));
       scrollMessagesToBottom('auto');
       $('welcome').hidden = true;
       clearDraft();
@@ -1087,7 +1219,7 @@
   function resize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; }
   function updateChatSummary(chat) {
     const index = chats.findIndex(item => item.id === chat.id);
-    const summary = { id: chat.id, title: chat.title, updatedAt: chat.updatedAt, totalTokens: chat.totalTokens };
+    const summary = { id: chat.id, title: chat.title, updatedAt: chat.updatedAt, totalTokens: chat.totalTokens, projectId: chat.projectId };
     if (index >= 0) chats[index] = summary;
     else chats.push(summary);
     renderChatHistory();
@@ -1194,7 +1326,7 @@
       const result = await api(page ? '/api/desktop/chat' : '/api/chat', {
         method: 'POST',
         signal: cloudReply.signal,
-        body: JSON.stringify({ stream: true, ...(page ? { desktopPage: { ...page, consent: true }, routingPageConsent, routingConsentVersion: routing?.consentVersion } : {}), chatId: activeChatId, modelChoice: chosen === 'free-cloud' ? 'free-cloud' : 'auto', message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
+        body: JSON.stringify({ stream: true, ...(page ? { desktopPage: { ...page, consent: true }, routingPageConsent, routingConsentVersion: routing?.consentVersion } : {}), chatId: activeChatId, projectId: activeChatId ? null : $('projectFilter').value || null, modelChoice: ['free-cloud', 'smart-route'].includes(chosen) ? chosen : 'auto', message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
         onText(part) {
           const bubble = typingRow.querySelector('.bubble');
           if (typingRow.classList.contains('typing')) {
@@ -1212,7 +1344,8 @@
         messages.querySelector('.message.assistant:not(.typing):not(.error):last-of-type')?.remove();
         if (options.edit) [...messages.querySelectorAll('.message.user')].at(-1)?.remove();
       }
-      addMessage('assistant', result.chat.messages.at(-1).text, null, '', true, [], value);
+      const answer = result.chat.messages.at(-1);
+      addMessage('assistant', answer.text, null, '', true, [], value, answer.smartRoute ? answer.model : undefined);
       updateChatSummary(result.chat);
       updateSession(result.session);
       if (sessionInfo?.provider.ready) showNotice('', false);

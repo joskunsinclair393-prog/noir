@@ -1,14 +1,14 @@
 // Use OpenRouter's explicit free router. Client input cannot select a paid model.
 import { providerJson, ProviderError } from './ai-routing.js';
 
-export async function generateFreeCloud({ apiKey, messages, instructions, maxOutputTokens, onText, fetchImpl = fetch }) {
+export async function generateFreeCloud({ apiKey, messages, instructions, maxOutputTokens, onText, preferredModel, fetchImpl = fetch }) {
   if (messages.some(message => message.attachments?.length)) throw new ProviderError(400, 'The free cloud model accepts text only.');
   const response = await fetchImpl('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     redirect: 'error',
     headers: { authorization: 'Bearer ' + apiKey, 'content-type': 'application/json' },
     body: JSON.stringify({
-      model: 'openrouter/free',
+      model: /^[a-z0-9_.-]+\/[a-z0-9_.-]+:free$/i.test(preferredModel || '') ? preferredModel : 'openrouter/free',
       messages: [{ role: 'system', content: instructions }, ...messages.map(({ role, text }) => ({ role, content: text }))],
       max_tokens: Math.min(1024, maxOutputTokens),
       stream: Boolean(onText),
@@ -22,7 +22,7 @@ export async function generateFreeCloud({ apiKey, messages, instructions, maxOut
       ![inputTokens, outputTokens].every(value => Number.isSafeInteger(value) && value >= 0)) {
     throw new ProviderError(502, 'The free cloud model returned an incomplete reply.');
   }
-  return { text: text.trim(), usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens } };
+  return { text: text.trim(), model: typeof data.model === 'string' ? data.model.slice(0, 128) : undefined, usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens } };
 }
 
 async function readFreeStream(response, onText) {
@@ -32,6 +32,7 @@ async function readFreeStream(response, onText) {
   let buffer = '';
   let text = '';
   let usage;
+  let model;
   let size = 0;
   for await (const bytes of response.body) {
     size += bytes.byteLength;
@@ -42,11 +43,12 @@ async function readFreeStream(response, onText) {
     for (const line of lines) {
       if (!line.startsWith('data:')) continue;
       const payload = line.slice(5).trim();
-      if (payload === '[DONE]') return { choices: [{ message: { content: text } }], usage };
+      if (payload === '[DONE]') return { choices: [{ message: { content: text } }], usage, model };
       let frame;
       try { frame = JSON.parse(payload); } catch { throw invalid(); }
       if (frame?.error || frame?.choices?.[0]?.finish_reason === 'error') throw invalid();
       if (frame?.usage) usage = frame.usage;
+      if (typeof frame?.model === 'string') model = frame.model;
       const delta = frame?.choices?.[0]?.delta?.content;
       if (typeof delta === 'string' && delta) {
         text += delta;

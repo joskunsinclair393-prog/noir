@@ -52,6 +52,12 @@
   <aside class="sidebar">
     <button type="button" class="brand home-button" id="homeButton" aria-label="Go to the NOIR home page"><img class="logo" src="logo.svg" alt=""><span>NOIR</span></button>
     <button class="newchat" id="newChat">＋ &nbsp; New chat</button>
+    <div class="projects-controls" id="projectControls" hidden>
+      <label for="projectFilter">Projects</label>
+      <select id="projectFilter"><option value="">All conversations</option></select>
+      <button id="projectCreate" type="button">New project</button>
+      <button id="projectEdit" type="button" hidden>Edit project</button>
+    </div>
     <label class="history-search-wrap" for="historySearch"><span aria-hidden="true">⌕</span><input id="historySearch" type="search" placeholder="Search chats" autocomplete="off" aria-label="Search saved chats"></label>
     <div class="side-label">Your chats</div>
     <div class="chat-history" id="chatHistory" aria-label="Saved chats"></div>
@@ -134,6 +140,7 @@
           </div>
         </div>
       </section>
+      <small class="answer-model" id="activeProject" hidden></small>
       <div class="composer">
         <textarea id="prompt" rows="1" placeholder="Message NOIR..." aria-label="Message NOIR"></textarea>
         <div class="attachments" id="attachments" aria-live="polite"></div>
@@ -240,6 +247,7 @@
     <div class="settings-layout">
       <nav class="settings-nav" aria-label="Settings sections">
         <button type="button" class="settings-tab is-active" data-settings-tab="general"><span>⚙</span>General</button>
+        <button type="button" class="settings-tab" data-settings-tab="personalization">Personalization</button>
         <button type="button" class="settings-tab" data-settings-tab="plan"><span>✦</span>Plan</button>
         <button type="button" class="settings-tab" data-settings-tab="connectors"><span>↗</span>Connectors</button>
         <button type="button" class="settings-tab" data-settings-tab="plugins"><span>✳</span>Plugins</button>
@@ -256,6 +264,7 @@
                     <span class="model-picker-mark" aria-hidden="true"></span>
                     <select id="modelChoice" aria-label="Choose an AI model">
                     <option value="auto">NOIR Auto</option>
+                    <option value="smart-route" disabled>NOIR Smart Route</option>
                     <option value="free-cloud" disabled>Free cloud · OpenRouter</option>
                     <option value="future-gpt" disabled>OpenAI GPT · Coming soon</option>
                     <option value="future-claude" disabled>Claude · Coming soon</option>
@@ -275,6 +284,19 @@
             <div class="setting-switch-row"><span class="setting-option-copy"><b>Prompt suggestions</b><small>Show starter ideas on the welcome screen</small></span><button type="button" class="setting-switch is-on" id="suggestionsToggle" role="switch" aria-checked="true" aria-label="Show prompt suggestions"><span></span></button></div>
             <div class="setting-switch-row"><span class="setting-option-copy"><b>Compact messages</b><small>Reduce the space between chat messages</small></span><button type="button" class="setting-switch" id="compactToggle" role="switch" aria-checked="false" aria-label="Compact messages"><span></span></button></div>
           </div>
+        </section>
+        <section class="settings-panel" data-settings-panel="personalization" hidden>
+          <h3>Personalization</h3>
+          <form id="personalizationForm" class="account-feature-form">
+            <label>Response style<select name="style"><option value="default">Default</option><option value="concise">Concise</option><option value="detailed">Detailed</option><option value="professional">Professional</option><option value="friendly">Friendly</option></select></label>
+            <label>Language<select name="language"><option value="default">Default</option><option value="English">English</option><option value="Spanish">Spanish</option><option value="French">French</option><option value="German">German</option><option value="Hindi">Hindi</option><option value="Japanese">Japanese</option><option value="Arabic">Arabic</option><option value="Korean">Korean</option><option value="Chinese">Chinese</option><option value="Portuguese">Portuguese</option></select></label>
+            <label>Formatting<select name="markdown"><option value="default">Default</option><option value="plain text">Plain text</option></select></label>
+            <label>Code explanations<select name="code"><option value="default">Default</option><option value="explain code step by step">Explain code step by step</option></select></label>
+            <label>Answer length<select name="length"><option value="default">Default</option><option value="short">Short</option><option value="medium">Medium</option><option value="long">Long</option></select></label>
+            <label>Custom instructions<textarea name="instructions" maxlength="2000" rows="3"></textarea></label>
+            <button type="submit">Save preferences</button>
+            <p id="personalizationStatus" role="status"></p>
+          </form>
         </section>
         <section class="settings-panel" data-settings-panel="plan" hidden>
           <div class="settings-panel-title"><div><h3>Your plan</h3><p id="planStatusDescription">You’re using NOIR Free.</p></div></div>
@@ -330,7 +352,7 @@
   <section class="plus-dialog" role="dialog" aria-modal="true" aria-labelledby="plusTitle">
     <button type="button" class="plus-close" id="plusClose" aria-label="Close NOIR Plus" title="Close"><small aria-hidden="true">×</small></button>
     <h2 id="plusTitle">NOIR Plus</h2>
-    <p class="plus-intro">Get access to NOIR Challenge when premium models are available.</p>
+    <p class="plus-intro" id="plusIntro">Get access to NOIR Challenge when premium models are available.</p>
     <div class="plus-price"><strong>$15</strong><span>AUD <b>/ month</b><small>Monthly recurring subscription</small></span></div>
     <div class="plan-comparison" role="table" aria-label="Compare NOIR plans">
       <div class="comparison-head" role="row"><span role="columnheader">Included</span><span role="columnheader">Free</span><span role="columnheader">Plus</span></div>
@@ -346,6 +368,24 @@
     <p class="plus-feedback" id="plusFeedback" role="status" aria-live="polite"></p>
   </section>
 </div>
+<dialog id="projectDialog" class="account-feature-dialog" aria-labelledby="projectTitle">
+  <form method="dialog"><button class="plus-close" aria-label="Close project">×</button></form>
+  <h2 id="projectTitle">Project</h2>
+  <form id="projectForm" class="account-feature-form">
+    <label>Project name<input name="name" maxlength="80" required></label>
+    <label>Project instructions<textarea name="instructions" maxlength="2000" rows="3"></textarea></label>
+    <button type="submit">Save project</button>
+    <button type="button" id="projectDelete" hidden>Delete project</button>
+  </form>
+  <p id="projectStatus" role="status"></p>
+</dialog>
+<dialog id="verifyDialog" class="account-feature-dialog" aria-labelledby="verifyTitle">
+  <form method="dialog"><button class="plus-close" aria-label="Close Verify">×</button></form>
+  <h2 id="verifyTitle">NOIR Verify</h2>
+  <p>Model-based review. No external evidence was checked.</p>
+  <p id="verifyStatus" role="status"></p>
+  <div id="verifyReport"></div>
+</dialog>
 <dialog id="challengeDialog" aria-labelledby="challengeTitle">
   <form method="dialog"><button class="plus-close" aria-label="Close challenge" title="Close"><small aria-hidden="true">×</small></button></form>
   <h2 id="challengeTitle">NOIR Challenge <small>PLUS</small></h2>
