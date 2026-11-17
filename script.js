@@ -468,15 +468,28 @@
       button.disabled = !ready;
       if (ready && desktopConnector) button.title = 'Manage this connection on the NOIR website.';
       button.setAttribute('aria-disabled', String(!ready));
+      if (button.dataset.type === 'Connector') {
+        state.textContent = ready ? (availability.connected ? 'Connected' : 'Connect')
+          : availability?.reason === 'oauth_not_implemented' ? 'Coming Soon' : 'Unavailable';
+        const help = button.querySelector('.setting-option-copy small');
+        if (help) {
+          help.dataset.original ||= help.textContent;
+          help.textContent = ready ? help.dataset.original
+            : availability?.reason === 'owner_only' ? 'Private connector for the NOIR owner'
+            : availability?.reason === 'oauth_not_implemented' ? 'Integration not available yet'
+            : availability?.reason === 'storage_unavailable' ? 'Connection storage is temporarily unavailable'
+            : 'Connector setup is incomplete';
+        }
+        return;
+      }
       if (!ready) {
-        state.textContent = button.dataset.type === 'Connector' ? 'Setup required' : 'Unavailable';
+        state.textContent = 'Unavailable';
         const help = button.querySelector('.setting-option-copy small');
         if (help && availability?.reason === 'isolated_sandbox_required') help.textContent = 'Disabled until isolated execution is available';
         else if (help && availability?.reason === 'missing_credentials') help.textContent = 'Search provider credentials are required';
         else if (help && availability?.reason === 'disabled_by_owner') help.textContent = 'Disabled by the site owner';
-        else if (help && availability?.reason === 'oauth_not_implemented') help.textContent = 'OAuth setup is not available yet';
       } else if (!selectedIntegrations.has(button.dataset.type + ':' + button.dataset.name)) {
-        state.textContent = button.dataset.type === 'Connector' ? (availability.connected ? 'Connected' : 'Connect') : 'Add';
+        state.textContent = 'Add';
       }
     });
   }

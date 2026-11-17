@@ -754,8 +754,9 @@ export function createNoirServer(options = {}) {
   async function accountIntegrations(user) {
     const integrations = integrationInfo();
     const names = Object.keys(integrations.connectors);
-    const [google, github] = await Promise.all([googleConnectors.status(user?.id, names), githubConnector.status(user?.id, names)]);
+    const [google, github] = await Promise.all([googleConnectors.status(user?.id, names), isOwner(user) ? githubConnector.status(user.id, names) : null]);
     Object.assign(integrations.connectors, google, github);
+    if (!isOwner(user)) integrations.connectors.GitHub.reason = 'owner_only';
     return integrations;
   }
 
@@ -774,6 +775,7 @@ export function createNoirServer(options = {}) {
       Maps: { ready: false, reason: 'maps_provider_not_configured' },
     };
     const connectors = Object.fromEntries(['Google Drive', 'Dropbox', 'OneDrive', 'Notion', 'Slack', 'GitHub', 'Google Calendar', 'Gmail'].map(name => [name, { ready: false, connected: false, reason: 'oauth_not_implemented' }]));
+    for (const name of ['Google Drive', 'Google Calendar', 'Gmail', 'GitHub']) connectors[name].reason = 'missing_connector_configuration';
     return { plugins, connectors, fileLimits: { maxFiles: MAX_ATTACHMENTS, maxFileBytes: MAX_ATTACHMENT_BYTES, maxTotalBytes: MAX_ATTACHMENT_TOTAL_BYTES, binaryProviders: ['gemini', 'openai'] } };
   }
 
@@ -1156,6 +1158,7 @@ export function createNoirServer(options = {}) {
           if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || '')) return sendJson(response, 400, { error: 'Send a JSON request.' });
           const { name } = await readJsonBody(request, 2048);
           if (typeof name !== 'string' || name.length > 80) return sendJson(response, 400, { error: 'Choose a connector.' });
+          if (name === 'GitHub' && !isOwner(accountUser)) return sendJson(response, 403, { error: 'GitHub is available only to the NOIR owner.', code: 'connector_owner_only' });
           checkRateLimit('connector:' + accountUser.id, false);
           const connector = name === 'GitHub' ? githubConnector : googleConnectors;
           const cookie = name === 'GitHub' ? '__Host-noir_github' : '__Host-noir_connector';

@@ -1017,3 +1017,45 @@ test('Account endpoints distinguish expired credentials from an unavailable auth
     assert.equal((await response.json()).code, code);
   }
 });
+
+test('GitHub connector is available only to the verified NOIR owner', async () => {
+  const ownerId = '11111111-1111-4111-8111-111111111111';
+  const server = realCreateNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: true, ownerId, supabaseUrl: 'https://auth.example.test', supabaseAnonKey: 'public', supabaseServiceRoleKey: 'private' },
+    connectorEnv: { GITHUB_CONNECTOR_CLIENT_ID: 'client', GITHUB_CONNECTOR_CLIENT_SECRET: 'secret', CONNECTOR_ENCRYPTION_KEY: Buffer.alloc(32, 42).toString('base64') },
+    fetchImpl: async (raw, init) => {
+      const url = new URL(raw);
+      if (url.pathname === '/auth/v1/user') {
+        const token = init.headers.authorization.split(' ')[1];
+        return Response.json({ id: token === 'other' ? 'another-user' : ownerId,
+          email_confirmed_at: token === 'unverified' ? null : '2026-01-01' });
+      }
+      assert.equal(url.pathname, '/rest/v1/noir_connector_grants');
+      assert.equal(url.searchParams.get('user_id'), 'eq.' + ownerId);
+      return Response.json([]);
+    },
+  });
+  const base = await listen(server);
+  const headers = token => ({ authorization: 'Bearer ' + token, 'content-type': 'application/json' });
+  for (const token of ['other', 'unverified']) {
+    const response = await fetch(base + '/api/integrations', { headers: headers(token) });
+    const { connectors } = (await response.json()).integrations;
+    assert.deepEqual(connectors.GitHub, { ready: false, connected: false, reason: 'owner_only' });
+    assert.equal(connectors.Dropbox.reason, 'oauth_not_implemented');
+    for (const action of ['start', 'read', 'disconnect']) {
+      const denied = await fetch(base + '/api/connectors/' + action, {
+        method: 'POST', headers: headers(token), body: JSON.stringify({ name: 'GitHub' }),
+      });
+      assert.equal(denied.status, 403);
+      assert.equal((await denied.json()).code, 'connector_owner_only');
+    }
+  }
+  const response = await fetch(base + '/api/integrations', { headers: headers('owner') });
+  assert.equal((await response.json()).integrations.connectors.GitHub.ready, true);
+  const start = await fetch(base + '/api/connectors/start', {
+    method: 'POST', headers: headers('owner'), body: JSON.stringify({ name: 'GitHub' }),
+  });
+  assert.equal(start.status, 200);
+  assert.equal(new URL((await start.json()).authorizeUrl).host, 'github.com');
+});
