@@ -1258,6 +1258,23 @@
     }
   });
 
+  const viewport = window.visualViewport;
+  if (viewport && !desktopBridge) {
+    const mobileLayout = window.matchMedia('(max-width: 800px)');
+    const syncComposerViewport = () => {
+      // The keyboard can shrink the visible viewport without resizing the page on iOS.
+      // Ignore pinching and small changes to the browser toolbar.
+      const keyboardVisible = mobileLayout.matches && document.activeElement === input &&
+        Math.abs(viewport.scale - 1) < 0.01 && window.innerHeight - viewport.height >= 100;
+      if (keyboardVisible) app.style.setProperty('--chat-visible-height', Math.floor(viewport.height) + 'px');
+      else app.style.removeProperty('--chat-visible-height');
+    };
+    viewport.addEventListener('resize', syncComposerViewport);
+    mobileLayout.addEventListener('change', syncComposerViewport);
+    input.addEventListener('focus', syncComposerViewport);
+    input.addEventListener('blur', () => app.style.removeProperty('--chat-visible-height'));
+  }
+
   function resize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; }
   function updateChatSummary(chat) {
     const index = chats.findIndex(item => item.id === chat.id);

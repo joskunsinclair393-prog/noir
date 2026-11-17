@@ -978,3 +978,13 @@ body.light-theme .plus-dialog .plus-checkout:disabled { background: #efede8; bor
 #projectForm [type="submit"] { margin-inline-start: auto; padding: 8px 14px; background: CanvasText; color: Canvas; font-weight: 650; }
 #projectForm [type="submit"]:hover:not(:disabled) { opacity: .85; }
 #projectStatus:empty { display: none; }
+
+/* iOS Safari may zoom when a focused form control uses text smaller than 16px. */
+@media (max-width: 800px) {
+  .app { max-height: var(--chat-visible-height, none); }
+  .auth-form input, .history-search-wrap input, .browser-address input,
+  .projects-controls select, .account-feature-form :is(input, select, textarea),
+  #projectForm :is(input, textarea), #modelChoice, textarea {
+    font-size: 16px;
+  }
+}
