@@ -301,6 +301,7 @@ export function createNoirServer(options = {}) {
     supabaseUrl: String(env.supabaseUrl ?? process.env.SUPABASE_URL ?? '').replace(/\/$/, ''),
     supabaseAnonKey: String(env.supabaseAnonKey ?? process.env.SUPABASE_ANON_KEY ?? ''),
     supabaseServiceRoleKey: String(env.supabaseServiceRoleKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''),
+    desktopDownloadUrl: String(env.desktopDownloadUrl ?? process.env.NOIR_DESKTOP_DOWNLOAD_URL ?? '').trim(),
     googleSiteVerification: String(env.googleSiteVerification ?? process.env.GOOGLE_SITE_VERIFICATION ?? '').trim(),
     stripeSecretKey: String(env.stripeSecretKey ?? process.env.STRIPE_SECRET_KEY ?? '').trim(),
     stripeWebhookSecret: String(env.stripeWebhookSecret ?? process.env.STRIPE_WEBHOOK_SECRET ?? '').trim(),
@@ -1671,6 +1672,7 @@ export function createNoirServer(options = {}) {
       const legacyApp = url.pathname === '/' && (/\bElectron\//i.test(request.headers['user-agent'] || '') ||
         ['code', 'error', 'error_description', 'settings', 'connector', 'plus'].some(key => url.searchParams.has(key)));
       const publicFiles = new Map([
+        ['/noir-ui.css', 'noir-ui.css'], ['/app-design.css', 'app-design.css'],
         ['/', legacyApp ? 'index.html' : 'landing.html'], ['/app', 'index.html'], ['/index.html', 'index.html'], ['/landing.css', 'landing.css'], ['/landing.js', 'landing.js'], ['/noir-landscape.jpg', 'noir-landscape.jpg'], ['/styles.css', 'styles.css'], ['/script.js', 'script.js'], ['/browser.js', 'browser.js'], ['/owner-dashboard-client.js', 'owner-dashboard-client.js'], ['/logo.svg', 'logo.svg'], ['/logo.svg.png', 'logo.svg.png'], ['/robots.txt', 'robots.txt'], ['/sitemap.xml', 'sitemap.xml'],
       ]);
       const file = publicFiles.get(url.pathname);
@@ -1682,7 +1684,12 @@ export function createNoirServer(options = {}) {
       if (file === 'index.html' || file === 'landing.html') {
         const token = /^[A-Za-z0-9_-]{1,256}$/.test(config.googleSiteVerification) ? config.googleSiteVerification : '';
         const verificationMeta = token ? `<meta name="google-site-verification" content="${token}">` : '';
-        content = Buffer.from(content.toString('utf8').replace('<!-- GOOGLE_SITE_VERIFICATION -->', verificationMeta), 'utf8');
+        const downloadUrl = /^https:\/\/github\.com\/joskunsinclair393-prog\/noir\/releases\/download\/[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+\.dmg$/.test(config.desktopDownloadUrl)
+          ? config.desktopDownloadUrl : '';
+        const downloadLink = downloadUrl
+          ? `<a class="browser-desktop-download" href="${downloadUrl}">Download NOIR Browser for Mac</a><p>Apple Silicon</p>` : '';
+        const homepage = content.toString('utf8').replace('<!-- GOOGLE_SITE_VERIFICATION -->', verificationMeta);
+        content = Buffer.from(homepage.replace('<!-- DESKTOP_BROWSER_DOWNLOAD -->', downloadLink), 'utf8');
       }
       response.writeHead(200, { 'content-type': contentTypes[extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
       return response.end(request.method === 'HEAD' ? undefined : content);

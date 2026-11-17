@@ -29,6 +29,7 @@
   let desktopPage;
   let captureDesktopPage;
   const desktopBridge = window.noirPage;
+  if (!desktopBridge) document.body.classList.add('web-app');
   const modelChoice = $('modelChoice');
   const modelStatus = $('modelStatus');
   let localModels = [];
@@ -1270,6 +1271,70 @@
       document.querySelectorAll('.chat-more-button').forEach(button => button.setAttribute('aria-expanded', 'false'));
     }
   });
+
+  // Website presentation reuses the existing actions; the desktop shell keeps its own layout.
+  if (!desktopBridge) {
+    $('workspaceNav').hidden = false;
+    $('welcomeTools').hidden = false;
+    document.querySelector('.brand span').textContent = 'NOIR.';
+    document.querySelector('.welcome h1').textContent = 'What are we working on?';
+    document.querySelector('.welcome p').textContent = 'Ask, research, create, or explore an idea.';
+    $('starterIdeas').append(document.querySelector('.suggestions'));
+    const projectNavigation = document.querySelector('[data-workspace-action="projects"]');
+    const syncWorkspace = () => {
+      for (const button of document.querySelectorAll('[data-model-shortcut]')) {
+        const option = [...modelChoice.options].find(item => item.value === button.dataset.modelShortcut);
+        button.disabled = modelChoice.disabled || !option || option.disabled;
+        button.title = button.disabled ? 'Not currently available. Check Models for details.' : 'Use ' + button.textContent.trim() + ' for a new conversation';
+        button.setAttribute('aria-pressed', String(modelChoice.value === button.dataset.modelShortcut));
+      }
+      $('currentModelLabel').textContent = modelChoice.selectedOptions[0]?.textContent.replace('NOIR ', '').split(' · ')[0] || 'Auto';
+      $('welcomeProjects').hidden = $('projectControls').hidden;
+      projectNavigation.hidden = $('projectControls').hidden;
+    };
+    new MutationObserver(syncWorkspace).observe(modelChoice, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled'] });
+    new MutationObserver(syncWorkspace).observe($('projectControls'), { attributes: true, attributeFilter: ['hidden'] });
+    modelChoice.addEventListener('change', syncWorkspace);
+    syncWorkspace();
+    for (const button of document.querySelectorAll('[data-model-shortcut]')) {
+      button.onclick = () => {
+        if (button.disabled || sending) return;
+        modelChoice.value = button.dataset.modelShortcut;
+        modelChoice.dispatchEvent(new Event('change'));
+        input.focus({ preventScroll: true });
+      };
+    }
+    function workspaceAction(action) {
+      if (action === 'projects') {
+        const expanded = !app.classList.contains('projects-expanded');
+        app.classList.toggle('projects-expanded', expanded);
+        projectNavigation.setAttribute('aria-expanded', String(expanded));
+        if (expanded) { setSidebar(true); $('projectFilter').focus({ preventScroll: true }); }
+        return;
+      }
+      if (action === 'chat') { browserWorkspace?.showAssistant(); input.focus({ preventScroll: true }); }
+      if (action === 'settings' || action === 'models') {
+        openSettings('general');
+        if (action === 'models') modelChoice.focus({ preventScroll: true });
+      }
+      if (action === 'verify' || action === 'challenge') {
+        browserWorkspace?.showAssistant();
+        if (!sessionInfo?.subscription?.isPlus) openSettings('plan');
+        else {
+          const latest = [...messages.querySelectorAll('.message.assistant:not(.typing):not(.error)')].at(-1);
+          const control = [...(latest?.querySelectorAll('.message-actions button') || [])]
+            .find(button => button.textContent.startsWith(action === 'verify' ? 'Verify' : 'Challenge'));
+          if (control) control.click();
+          else { showNotice('Send a message first, then ' + (action === 'verify' ? 'review' : 'challenge') + ' the answer.'); input.focus({ preventScroll: true }); }
+        }
+      }
+      if (window.matchMedia('(max-width: 700px)').matches) setSidebar(false);
+    }
+    $('welcomeProjects').onclick = () => workspaceAction('projects');
+    document.querySelectorAll('[data-workspace-action]').forEach(button => {
+      button.onclick = () => workspaceAction(button.dataset.workspaceAction);
+    });
+  }
 
   const viewport = window.visualViewport;
   if (viewport && !desktopBridge) {
