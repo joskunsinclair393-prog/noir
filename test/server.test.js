@@ -901,10 +901,11 @@ for (const connector of ['Google Drive', 'Google Calendar', 'Gmail']) test('Chat
       if (url.pathname.endsWith('/noir_subscriptions')) return Response.json([]);
       if (url.pathname.endsWith('/noir_user_data')) {
         if (init.method === 'POST') {
-          saved = JSON.parse(init.body).data;
+          const data = JSON.parse(init.body).data;
+          if (data.accountId === account) saved = data;
           return new Response(null, { status: 204 });
         }
-        return Response.json(saved ? [{ data: saved }] : []);
+        return Response.json(url.searchParams.get('user_id') === 'eq.' + account && saved ? [{ data: saved }] : []);
       }
       if (url.pathname.endsWith('/noir_connector_grants')) {
         if (init.method === 'POST') {
@@ -952,4 +953,46 @@ for (const connector of ['Google Drive', 'Google Calendar', 'Gmail']) test('Chat
   assert.equal(reply.usage.totalTokens, 0);
   assert.doesNotMatch(JSON.stringify(saved), /Private Drive fixture/);
   assert.equal(driveReads, 1);
+});
+
+test('Account storage outage preserves history and chat analytics record one outcome without message text', async () => {
+  let storage = 'malformed';
+  let writes = 0;
+  let validReply = false;
+  const events = [];
+  const server = realCreateNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: true, analyticsEnabled: true, supabaseUrl: 'https://db.example',
+      supabaseAnonKey: 'public', supabaseServiceRoleKey: 'private' },
+    fetchImpl: async (raw, init) => {
+      const path = new URL(raw).pathname;
+      if (path === '/auth/v1/user') return Response.json({ id: 'analytics-account' });
+      if (path.endsWith('/noir_subscriptions')) return Response.json([]);
+      if (path.endsWith('/noir_user_data')) {
+        if (init.method === 'POST') { writes++; return new Response(null, { status: 204 }); }
+        if (storage === 'malformed') return new Response('invalid json');
+        if (storage === 'invalid-row') return Response.json([{ data: { accountId: 'wrong' } }]);
+        return Response.json([]);
+      }
+      if (path.endsWith('/noir_record_ai_usage')) { events.push(JSON.parse(init.body)); return new Response(null, { status: 204 }); }
+      assert.fail('Unexpected path: ' + path);
+    },
+    generate: async () => ({ text: validReply ? 'Valid test answer' : '', model: 'test-model',
+      usage: { inputTokens: 3, outputTokens: 2 } }),
+  });
+  const base = await listen(server);
+  const headers = { authorization: 'Bearer session', 'content-type': 'application/json' };
+  for (const state of ['malformed', 'invalid-row']) {
+    storage = state;
+    assert.equal((await fetch(base + '/api/bootstrap', { headers })).status, 503);
+  }
+  assert.equal(writes, 0);
+  storage = 'new';
+  const chat = () => fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify({ message: 'Private test prompt' }) });
+  assert.equal((await chat()).status, 502);
+  validReply = true;
+  assert.equal((await chat()).status, 200);
+  assert.deepEqual(events.map(event => [event.p_feature, event.p_model, event.p_succeeded, event.p_tokens]),
+    [['chat', 'test-model', false, 5], ['chat', 'test-model', true, 5]]);
+  assert.doesNotMatch(JSON.stringify(events), /Private test prompt|Valid test answer/);
 });

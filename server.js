@@ -223,7 +223,7 @@ function publicError(error) {
     if (error.status === 401 || error.status === 403) return { status: 502, message: 'The provider rejected this API key or model. Check your key, model name, and provider account access.', code: 'provider_auth' };
     return { status: 502, message: 'The AI provider could not complete this request. Check the provider status and try again.', code: 'provider_error' };
   }
-  if (error.code === 'ai_response_timeout') return { status: 504, message: error.message, code: error.code };
+  if (error.code === 'invalid_provider_response') return { status: 502, message: 'The AI provider returned an incomplete reply. Please try again.', code: error.code };  if (error.code === 'ai_response_timeout') return { status: 504, message: error.message, code: error.code };
   if (error.status === 400 || error.status === 401 || error.status === 404 || error.status === 413 || error.status === 429 || error.status === 402 || error.status === 403 || error.status === 503) {
     return { status: error.status, message: error.message, code: error.code, details: error.details };
   }
@@ -484,13 +484,17 @@ export function createNoirServer(options = {}) {
         }
         if (!response.ok) throw Object.assign(new Error('NOIR account storage is not ready. Check the database setup and try again.'), { status: 503, code: 'storage_unavailable' });
         let rows;
-        try { rows = await response.json(); } catch { rows = []; }
+        try { rows = await response.json(); } catch {}
+        if (!Array.isArray(rows)) throw Object.assign(new Error('NOIR could not load your saved account data. Try again.'), { status: 503, code: 'storage_unavailable' });
         const saved = rows?.[0]?.data;
         const validSaved = saved && saved.accountId === user.id && Array.isArray(saved.chats);
-        store.sessions[key] = validSaved
-          ? saved
-          : { createdAt: Date.now(), accountId: user.id, credits: config.startingCredits, usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, pluginUsage: { fileAnalyses: 0, webSearches: 0 }, chats: [] };
-        if (!validSaved) await persistAccountData(user.id, store.sessions[key]);
+        if (rows.length && !validSaved) throw Object.assign(new Error('NOIR could not load your saved account data. Try again.'), { status: 503, code: 'storage_unavailable' });
+        if (validSaved) store.sessions[key] = saved;
+        else {
+          const initial = { createdAt: Date.now(), accountId: user.id, credits: config.startingCredits, usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, pluginUsage: { fileAnalyses: 0, webSearches: 0 }, chats: [] };
+          await persistAccountData(user.id, initial);
+          store.sessions[key] = initial;
+        }
       } else {
         store.sessions[key] = { createdAt: Date.now(), accountId: user.id, credits: config.startingCredits, usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, pluginUsage: { fileAnalyses: 0, webSearches: 0 }, chats: [] };
         saveStore();
@@ -1539,6 +1543,9 @@ export function createNoirServer(options = {}) {
               && (!(pageContext || plugins.includes('Web Search') || chat.usedWebContext || chat.messages.some(item => item.role === 'assistant' && /(?:\n\nPages checked:|\n\nSources\n|Untrusted public webpage excerpt)/.test(item.text))) ||
                 body.routingPageConsent === true && body.routingConsentVersion === routingConsent) ? user : null;
             if (!freeSelected && paidRoutingOnly && !routingUser) throw Object.assign(new Error('This reply requires a text-only chat and consent to route any included web sources.'), { status: 403, code: 'routing_context_required' });
+            const analyticsFeature = smartRoute ? 'smart-route' : 'chat';
+            let usage;
+            let providerError;
             try {
               signal.throwIfAborted();
               const categories = [['coding', /\b(code|debug|programming|javascript|python|refactor)\b/i],
@@ -1548,22 +1555,27 @@ export function createNoirServer(options = {}) {
               const category = smartRoute && (categories.find(([, pattern]) => pattern.test(message))?.[0] || 'general');
               generated = await generate(providerHistory, timeZone, outputBudget, signal, routingUser, freeSelected, onText,
                 project?.instructions || data.personalization ? preferences : '', category ? smartFreeModels[category] : undefined);
-            }
-            catch (error) {
-              if (!disconnect.signal.aborted && !taskSignal?.aborted) recordAiUsage(user, smartRoute ? 'smart-route' : 'chat', '', false);
-              if (!signal.aborted) throw error;
+              signal.throwIfAborted();
+              usage = normalizedUsage(generated?.usage || {});
+              if (typeof generated?.text !== 'string' || !generated.text.trim() || (!usage.inputTokens && !usage.outputTokens)) {
+                throw Object.assign(new Error('The provider did not return a response with token usage.'), { status: 502, code: 'invalid_provider_response' });
+              }
+            } catch (error) {
+              providerError = error;
+              if (!disconnect.signal.aborted && !taskSignal?.aborted) {
+                recordAiUsage(user, analyticsFeature, generated?.model, false, usage?.totalTokens);
+              }
             }
             if (signal.aborted) {
               throw Object.assign(new Error(taskSignal?.aborted ? 'Research was stopped.' : 'NOIR took too long to respond. Please try again.'), { status: taskSignal?.aborted ? 400 : 504, code: taskSignal?.aborted ? 'research_stopped' : 'ai_response_timeout' });
             }
+            if (providerError) throw providerError;
             if (pageContext?.pages) {
               generated.text += '\n\nPages checked:\n' + pageContext.pages.map(page => page.url).join('\n');
               if (pageContext.failures.length) generated.text += '\n\nSome pages could not be accessed. The findings may be incomplete.';
             }
             if (desktopContext && generated.text) generated.text += '\n\nSources\n[Current page](' + pageContext.url.replaceAll('(', '%28').replaceAll(')', '%29') + ')';
             if (sources.length) generated.text += `\n\nSources\n${sources.map((source, index) => `[${index + 1}] [${source.title}](${source.url})`).join('\n')}`;
-            const usage = normalizedUsage(generated.usage || {});
-            if (!generated.text || !usage.inputTokens && !usage.outputTokens) throw Object.assign(new Error('The provider did not return a response with token usage.'), { status: 502, code: 'invalid_provider_response' });
             chat.title = chat.messages.length ? chat.title : (message.replace(/\s+/g, ' ').slice(0, 42) || 'New chat');
             chat.updatedAt = Date.now();
             if (pageContext || sources.length) chat.usedWebContext = true;
@@ -1585,7 +1597,7 @@ export function createNoirServer(options = {}) {
             if (config.creditsEnabled && !unlimitedAccess && !isPlus) data.credits -= config.creditsPerMessage;
             if (config.authRequired) await persistAccountData(accountUser.id, data);
             else saveStore();
-            recordAiUsage(user, smartRoute ? 'smart-route' : 'chat', generated.model, true, usage.totalTokens);
+            recordAiUsage(user, analyticsFeature, generated.model, true, usage.totalTokens);
             return { chat: assistantChat(chat), usage, routing: generated.routing || (routing.enabled ? { provider: providerInfo().label, switched: false } : null), session: sessionSummary(data, user, subscription) };
           });
           if (response.headersSent) return response.end(JSON.stringify({ result }) + '\n');
