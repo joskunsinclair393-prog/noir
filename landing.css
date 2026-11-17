@@ -146,7 +146,6 @@ p,h1,h2,h3,figure{margin:0}
 .beta-record h3{margin-top:15px}
 .beta-record p{white-space:pre-wrap}
 .beta-record select{font:inherit;padding:8px;background:#181818;color:#fff}
-.hero-landscape{background:linear-gradient(90deg,#080808 1%,#0808086b 34%,transparent 70%),linear-gradient(0deg,#080808 0%,transparent 28%),url("/noir-landscape.jpg") center 34% / cover no-repeat,#080808}
 @media(max-width:760px){.hero-landscape{background-position:center,center,61% 50%;opacity:.52}}
 
 @media(min-width:1100px){
@@ -158,5 +157,57 @@ p,h1,h2,h3,figure{margin:0}
   .chapter-caption{top:-48px}
 }
 @media(max-width:760px){
-  .hero-landscape{background-image:linear-gradient(90deg,#080808 4%,#080808b3 48%,#08080833),linear-gradient(0deg,#080808,transparent 28%),url("/noir-landscape.jpg")}
 }
+
+/* Abstract surface lighting replaces the former photographic backdrop. */
+.hero-landscape{background:linear-gradient(105deg,#080808 24%,transparent 76%),repeating-linear-gradient(114deg,#ffffff03 0 1px,transparent 1px 5px),radial-gradient(ellipse at 85% 0%,#3a3a3a,transparent 62%),#090909;opacity:1}
+.editorial .intro-product{grid-column:1/-1;margin-top:20px}
+.intro-product{min-width:0;border:1px solid #414141;border-radius:14px;background:#131313;display:grid;grid-template-columns:minmax(108px,26%) minmax(0,1fr);overflow:hidden}
+.intro-sidebar{display:grid;gap:12px;align-content:start;padding:clamp(12px,3vw,40px);background:#0d0d0d;border-right:1px solid #303030;font-size:clamp(10px,1.3vw,15px)}
+.intro-sidebar strong{font-size:22px;letter-spacing:-.06em}
+.intro-chat{min-width:0;padding:clamp(18px,5vw,72px);text-align:center;color:#aaa}
+.intro-chat h3{color:#fff;font-size:clamp(18px,3vw,40px);letter-spacing:-.05em;margin-block:7px 18px}
+.intro-chat div{border:1px solid #444;background:#222;padding:10px 13px;border-radius:9px;text-align:left;font-size:13px}
+.intro-chat div b{float:right;color:#fff}
+.feature-chapter,.experience{border-top:1px solid var(--line);padding:clamp(43px,7vw,105px) 0}
+.feature-layout{display:grid;grid-template-columns:minmax(0,42fr) minmax(0,50fr);gap:8%;align-items:center}
+.feature-layout h2,.experience h2{font-size:clamp(40px,5.1vw,84px);letter-spacing:-.054em;line-height:.98;margin:25px 0 20px}
+.feature-copy>p,.closing .shell>p{max-width:470px;color:#bbb;font-size:clamp(16px,1.5vw,21px)}
+.light-chapter{background:#f5f5f5;color:#080808}
+.light-chapter .feature-copy>p,.closing .shell>p{color:#424242}
+.light-chapter .eyebrow span{background:#777}
+.reverse .feature-copy{grid-column:2;grid-row:1}.reverse .detail-frame{grid-column:1;grid-row:1}
+.detail-frame{min-width:0;background:#141414;color:#f6f6f6;border:1px solid #484848;border-radius:15px;overflow:hidden;box-shadow:0 18px 36px #0003;transform:scale(var(--preview-scale,1));transform-origin:center}
+.detail-bar{display:flex;justify-content:space-between;gap:10px;align-items:center;border-bottom:1px solid #3b3b3b;padding:14px clamp(13px,2.6vw,30px);color:#bbb;font-size:13px}
+.detail-bar strong{color:#fff;font-size:22px;letter-spacing:-.08em}
+.detail-body,.workflow-display{padding:clamp(17px,3vw,38px);display:grid;gap:10px}
+.detail-frame figcaption{border-top:1px solid #363636;padding:10px clamp(13px,2.6vw,30px);color:#aaa;font-size:12px}
+.mock-label{color:#ccc;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+.mock-row{border:1px solid #3d3d3d;background:#202020;padding:11px 13px;border-radius:7px;font-size:clamp(13px,1.25vw,17px);display:flex;justify-content:space-between;flex-wrap:wrap;gap:7px}
+.mock-row b,.mock-meta,.mock-row p{color:#b8b8b8;font-size:13px}
+.mock-meta{margin-top:7px}
+.mock-columns,.paired-previews{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.paired-previews{grid-template-columns:1fr;gap:18px}
+.paired-previews .detail-frame:last-child{margin-inline:12% 0}
+.workflow{display:grid;grid-template-columns:minmax(0,39fr) minmax(0,55fr);gap:6%;align-items:start;margin-top:35px}
+.workflow-steps article{border-top:1px solid #383838;padding:28px 0 54px}
+.workflow-steps span,.workflow-steps p{color:#aaa}.workflow-steps h3{font-size:clamp(22px,2.5vw,34px);letter-spacing:-.04em;margin-block:6px 4px}
+.workflow-preview{position:sticky;top:120px}.workflow-display{grid-template-columns:minmax(0,1fr);min-height:235px;align-content:center}
+.workflow-panel{display:grid;gap:12px}.workflow-panel:not(:first-child){display:none}
+.workflow-preview.is-enhanced .workflow-panel{display:grid;grid-area:1/1}
+.closing .shell>p{margin-bottom:20px}
+@media(max-width:760px){
+  .hero-landscape{opacity:.65}
+  .editorial .intro-product{margin-top:11px}
+  .feature-layout,.workflow{display:block}
+  .feature-layout .detail-frame,.paired-previews{margin-top:23px}
+  .paired-previews .detail-frame{margin-top:0}
+  .paired-previews .detail-frame:last-child{margin-inline:0}
+  .workflow-preview{position:static}.workflow-steps article{padding:17px 0 22px}
+  .workflow-display{min-height:155px}.detail-frame{transform:none}
+}
+@media(prefers-reduced-motion:reduce){.detail-frame{transform:none}}
+
+.workflow-preview:not(.is-enhanced) .workflow-panel{opacity:1!important;transform:none!important}
+
+.workflow-display{overflow:hidden}
