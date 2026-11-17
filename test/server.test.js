@@ -1059,3 +1059,75 @@ test('GitHub connector is available only to the verified NOIR owner', async () =
   assert.equal(start.status, 200);
   assert.equal(new URL((await start.json()).authorizeUrl).host, 'github.com');
 });
+
+test('Public landing and app routes preserve desktop and legacy callback entry points', async () => {
+  const base = await listen(realCreateNoirServer({ dataFile: temporaryStore() }));
+  const landing = await fetch(base);
+  assert.match(await landing.text(), /Intelligence,<br>without the/);
+  assert.match(landing.headers.get('vary'), /User-Agent/i);
+  for (const [path, headers] of [['/app', {}], ['/?settings=connectors', {}], ['/?code=oauth-code', {}], ['/?plus=success', {}], ['/', { 'user-agent': 'NOIR/0.2 Electron/40.0' }]]) {
+    const app = await fetch(base + path, { headers });
+    assert.match(await app.text(), /id="authGate"/);
+    assert.match(app.headers.get('x-robots-tag'), /noindex/);
+  }
+  assert.match((await fetch(base + '/noir-landscape.jpg')).headers.get('content-type'), /image\/jpeg/);
+});
+
+test('Beta requests validate and deduplicate submissions and protect owner-only review', async () => {
+  const ownerId = '11111111-1111-4111-8111-111111111111';
+  const applicationId = '22222222-2222-4222-8222-222222222222';
+  const rows = new Map();
+  const server = realCreateNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: true, ownerId, supabaseUrl: 'https://db.example', supabaseAnonKey: 'public', supabaseServiceRoleKey: 'private' },
+    fetchImpl: async (raw, init) => {
+      const url = new URL(raw);
+      if (url.pathname === '/auth/v1/user') return Response.json({ id: init.headers.authorization === 'Bearer owner' ? ownerId : 'other', email_confirmed_at: '2026-01-01' });
+      if (url.pathname.endsWith('/noir_beta_applications')) {
+        if (init.method === 'GET') return Response.json([...rows.values()]);
+        assert.equal(url.searchParams.get('on_conflict'), 'email');
+        assert.match(init.headers.prefer, /ignore-duplicates/);
+        const row = JSON.parse(init.body);
+        if (!rows.has(row.email)) rows.set(row.email, { ...row, id: applicationId, created_at: '2026-01-01', status: 'pending' });
+        return new Response(null, { status: 201 });
+      }
+      if (url.pathname.endsWith('/noir_review_beta_application')) {
+        const review = JSON.parse(init.body);
+        assert.equal(review.p_id, applicationId);
+        const email = 'pilot@example.test';
+        if (review.p_delete) rows.delete(email);
+        else Object.assign(rows.get(email), { status: review.p_status, pilot_slot: review.p_slot, invited: review.p_invited });
+        return Response.json(true);
+      }
+      assert.fail('Unexpected path: ' + url.pathname);
+    },
+  });
+  const base = await listen(server);
+  const post = (path, fields, headers = {}) => fetch(base + path, { method: 'POST', body: new URLSearchParams(fields), redirect: 'manual', headers });
+  const application = { email: 'Pilot@Example.test', intendedUse: '<script>hello</script>', consent: 'yes' };
+  assert.equal((await post('/beta', { ...application, consent: '' })).status, 400);
+  assert.equal((await post('/beta', application, { origin: 'https://other.example' })).status, 403);
+  assert.equal((await post('/beta', { ...application, website: 'spam' })).status, 303);
+  assert.equal(rows.size, 0);
+  assert.equal((await post('/beta', application)).status, 303);
+  assert.equal((await post('/beta', { ...application, intendedUse: 'Overwrite' })).status, 303);
+  assert.equal(rows.size, 1);
+  const receipt = await (await fetch(base + '/beta?submitted=1')).text();
+  assert.match(receipt, /Application received/);
+  assert.doesNotMatch(receipt, /pilot@example|hello/);
+  assert.equal((await fetch(base + '/admin/beta')).status, 403);
+  assert.equal((await post('/admin/beta', { id: applicationId, action: 'delete' })).status, 403);
+  const session = token => fetch(base + '/api/admin/session', { method: 'POST', headers: { authorization: 'Bearer ' + token } });
+  assert.equal((await session('other')).status, 403);
+  const cookie = (await session('owner')).headers.get('set-cookie').split(';')[0];
+  const html = await (await fetch(base + '/admin/beta', { headers: { cookie } })).text();
+  assert.match(html, /&lt;script&gt;hello/);
+  assert.doesNotMatch(html, /Overwrite/);
+  assert.equal((await post('/admin/beta', { id: applicationId, action: 'save', status: 'approved', slot: '1', invited: 'yes' }, { cookie })).status, 200);
+  assert.equal(rows.get('pilot@example.test').pilot_slot, 1);
+  assert.equal(rows.get('pilot@example.test').invited, true);
+  await post('/admin/beta', { id: applicationId, action: 'delete', confirmDelete: 'yes' }, { cookie });
+  assert.equal(rows.size, 0);
+  for (let attempt = 0; attempt < 30; attempt++) await post('/beta', { website: 'trap' });
+  assert.equal((await post('/beta', application)).status, 429);
+});

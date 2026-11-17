@@ -1,3 +1,4 @@
+import { betaAdmin, betaForm, parseBetaApplication, parseBetaReview } from './beta-applications.js';
 import { generateFreeCloud } from './free-cloud.js';
 import { ownerDashboard } from './owner-dashboard.js';
 import { createGitHubConnector, createGoogleConnectors } from './google-connectors.js';
@@ -230,7 +231,7 @@ function publicError(error) {
   return { status: 500, message: 'Something went wrong on the NOIR server. Please try again.', code: 'server_error' };
 }
 
-const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8' };
+const contentTypes = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8' };
 
 const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 const MAX_ATTACHMENTS = 4;
@@ -922,6 +923,19 @@ export function createNoirServer(options = {}) {
     for (const [key, expires] of pageAttempts) if (expires <= now) pageAttempts.delete(key);
   }
 
+  const betaRequests = [];
+  const betaTable = '/rest/v1/noir_beta_applications';
+  function sendBetaPage(response, status, body, head = false) {
+    response.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex' });
+    return response.end(head ? undefined : body);
+  }
+  async function readBetaForm(request) {
+    if (!/^application\/x-www-form-urlencoded(?:;|$)/i.test(request.headers['content-type'] || '')) {
+      throw Object.assign(new Error('Submit the application form from NOIR.'), { status: 400 });
+    }
+    return new URLSearchParams((await readRawBody(request, 32_768)).toString('utf8'));
+  }
+
   const server = createServer(async (request, response) => {
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('referrer-policy', 'no-referrer');
@@ -932,7 +946,28 @@ export function createNoirServer(options = {}) {
 
     const url = new URL(request.url, `http://${request.headers.host || '127.0.0.1'}`);
     try {
-      if (url.pathname === '/admin' || url.pathname.startsWith('/api/admin/')) {
+      if (url.pathname === '/beta' && ['GET', 'HEAD', 'POST'].includes(request.method)) {
+        if (request.method !== 'POST') return sendBetaPage(response, 200, betaForm({ submitted: url.searchParams.get('submitted') === '1' }), request.method === 'HEAD');
+        if (!sameOrigin(request)) return sendBetaPage(response, 403, betaForm({ error: 'Submit the application from the NOIR website.' }));
+        const now = Date.now();
+        while (betaRequests.length && now - betaRequests[0] >= 60_000) betaRequests.shift();
+        if (betaRequests.length >= 30) return sendBetaPage(response, 429, betaForm({ error: 'Too many submissions. Try again in a minute.' }));
+        betaRequests.push(now);
+        try {
+          const form = await readBetaForm(request);
+          if (!form.get('website')) {
+            const application = parseBetaApplication(form);
+            await ownerDatabase(betaTable + '?on_conflict=email', application, { prefer: 'resolution=ignore-duplicates,return=minimal' });
+          }
+        } catch (error) {
+          const clientError = error.status === 400 || error.status === 413;
+          return sendBetaPage(response, clientError ? error.status : 503,
+            betaForm({ error: clientError ? error.message : 'Applications are temporarily unavailable. Please try again later.' }));
+        }
+        response.writeHead(303, { location: '/beta?submitted=1', 'cache-control': 'no-store' });
+        return response.end();
+      }
+      if (['/admin', '/admin/beta'].includes(url.pathname) || url.pathname.startsWith('/api/admin/')) {
         response.setHeader('x-robots-tag', 'noindex, nofollow');
         response.setHeader('cache-control', 'no-store');
         response.setHeader('vary', 'Cookie, Authorization');
@@ -954,6 +989,26 @@ export function createNoirServer(options = {}) {
           const next = randomBytes(32).toString('hex');
           adminTickets.set(next, { authorization, expires: Date.now() + adminTTL * 1000 });
           return sendJson(response, 200, {}, { 'set-cookie': adminCookieValue(next, adminTTL) });
+        }
+        if (url.pathname === '/admin/beta') {
+          if (request.method === 'POST' && !sameOrigin(request)) return sendJson(response, 403, { error: 'Cross-origin requests are not allowed.' });
+          if (!['GET', 'POST'].includes(request.method)) return sendJson(response, 405, { error: 'Method not allowed.' });
+          let state = '';
+          if (request.method === 'POST') {
+            try {
+              const review = parseBetaReview(await readBetaForm(request));
+              const result = await ownerDatabase('/rest/v1/rpc/noir_review_beta_application', review);
+              state = await result.json() === true ? 'Application updated.' : 'Application no longer exists.';
+            } catch (error) {
+              state = error.status === 400 ? error.message : 'Could not save the review. Check whether the pilot slot is already assigned.';
+            }
+          }
+          try {
+            const records = await ownerDatabase(betaTable + '?select=id,email,intended_use,experience,created_at,status,pilot_slot,invited&order=created_at.desc&limit=100');
+            return sendBetaPage(response, 200, betaAdmin(await records.json(), state));
+          } catch {
+            return sendBetaPage(response, 503, betaAdmin([], 'Application storage is unavailable.'));
+          }
         }
         if (request.method !== 'GET' || !['/admin', '/api/admin/analytics'].includes(url.pathname)) {
           return sendJson(response, 404, { error: 'Admin route not found.' });
@@ -1613,14 +1668,18 @@ export function createNoirServer(options = {}) {
       }
 
       if (request.method !== 'GET' && request.method !== 'HEAD') return sendJson(response, 405, { error: 'Method not allowed.' });
+      const legacyApp = url.pathname === '/' && (/\bElectron\//i.test(request.headers['user-agent'] || '') ||
+        ['code', 'error', 'error_description', 'settings', 'connector', 'plus'].some(key => url.searchParams.has(key)));
       const publicFiles = new Map([
-        ['/', 'index.html'], ['/index.html', 'index.html'], ['/styles.css', 'styles.css'], ['/script.js', 'script.js'], ['/browser.js', 'browser.js'], ['/owner-dashboard-client.js', 'owner-dashboard-client.js'], ['/logo.svg', 'logo.svg'], ['/logo.svg.png', 'logo.svg.png'], ['/robots.txt', 'robots.txt'], ['/sitemap.xml', 'sitemap.xml'],
+        ['/', legacyApp ? 'index.html' : 'landing.html'], ['/app', 'index.html'], ['/index.html', 'index.html'], ['/landing.css', 'landing.css'], ['/landing.js', 'landing.js'], ['/noir-landscape.jpg', 'noir-landscape.jpg'], ['/styles.css', 'styles.css'], ['/script.js', 'script.js'], ['/browser.js', 'browser.js'], ['/owner-dashboard-client.js', 'owner-dashboard-client.js'], ['/logo.svg', 'logo.svg'], ['/logo.svg.png', 'logo.svg.png'], ['/robots.txt', 'robots.txt'], ['/sitemap.xml', 'sitemap.xml'],
       ]);
       const file = publicFiles.get(url.pathname);
       if (!file) return sendJson(response, 404, { error: 'Not found.' });
       const filePath = join(ROOT, file);
       let content = readFileSync(filePath);
-      if (file === 'index.html') {
+      if (url.pathname === '/') response.setHeader('vary', 'User-Agent');
+      if (file === 'index.html') response.setHeader('x-robots-tag', 'noindex');
+      if (file === 'index.html' || file === 'landing.html') {
         const token = /^[A-Za-z0-9_-]{1,256}$/.test(config.googleSiteVerification) ? config.googleSiteVerification : '';
         const verificationMeta = token ? `<meta name="google-site-verification" content="${token}">` : '';
         content = Buffer.from(content.toString('utf8').replace('<!-- GOOGLE_SITE_VERIFICATION -->', verificationMeta), 'utf8');

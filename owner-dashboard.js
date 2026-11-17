@@ -139,7 +139,7 @@ export function ownerDashboard({ metrics, registrations, subscribers, range, bil
 @media(max-width:790px){.layout{display:block}.sidebar{position:static;height:auto;gap:10px;padding:12px;border-right:0;border-bottom:1px solid var(--line)}.sidebar nav{display:flex;flex-wrap:wrap}.sidebar a{padding:6px 8px}.back{margin:0}}@media(max-width:550px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.panels{grid-template-columns:1fr}.cards>div,.panel{padding:12px}}@media(prefers-reduced-motion:no-preference){.sidebar a,.slice{transition:background .15s,stroke-width .15s}}
 </style><script src="/owner-dashboard-client.js" defer></script></head><body><div class="layout">
 <aside class="sidebar"><div class="brand"><img src="/logo.svg" alt="">NOIR</div><nav aria-label="Command Center">${sections.map(([id, label, icon]) =>
-  '<a href="#' + id + '"><span aria-hidden="true">' + icon + '</span>' + label + '</a>').join('')}</nav><a class="back" href="/">← Back to NOIR</a></aside>
+  '<a href="#' + id + '"><span aria-hidden="true">' + icon + '</span>' + label + '</a>').join('')}</nav><a href="/admin/beta">Beta Applications</a><a class="back" href="/app">← Back to NOIR</a></aside>
 <main class="shell"><header class="head"><div><h1>NOIR Command Center</h1><p>Updated <span id="updated-at">${escaped(time(updatedAt))}</span></p><p id="refresh-status" role="status"></p></div>
 <form action="/admin" method="get"><label for="range">Date range</label><select id="range" name="range">${[['7','7 days'],['30','30 days'],['90','90 days'],['all','All time']].map(([value, label]) =>
   '<option value="' + value + '"' + (range === value ? ' selected' : '') + '>' + label + '</option>').join('')}</select><noscript><button>Apply</button></noscript></form></header>

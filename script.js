@@ -259,7 +259,7 @@
       localStorage.setItem('noirOAuthVerifier', verifier);
       const url = new URL(`${authConfig.supabaseUrl}/auth/v1/authorize`);
       url.searchParams.set('provider', provider);
-      url.searchParams.set('redirect_to', location.origin + location.pathname);
+      url.searchParams.set('redirect_to', location.origin + '/');
       url.searchParams.set('code_challenge', challenge);
       url.searchParams.set('code_challenge_method', 's256');
       url.searchParams.set('flow_type', 'pkce');
