@@ -34,7 +34,8 @@
   function render() {
     frame = 0;
     if (!motion.matches) {
-      hero.style.removeProperty('--drift');
+      hero.removeAttribute('style');
+      journey.removeAttribute('style');
       panels.forEach(panel => panel.style.removeProperty('--preview-scale'));
       document.querySelectorAll('.chapter').forEach(section => section.removeAttribute('style'));
       typed.textContent = promptText;
@@ -42,7 +43,6 @@
       return;
     }
     hero.style.setProperty('--drift', Math.round(Math.min(scrollY, hero.offsetHeight) * .09) + 'px');
-    const focus = innerHeight * .48;
     for (const panel of panels) {
       const bounds = panel.getBoundingClientRect();
       if (bounds.bottom < 0 || bounds.top > innerHeight) continue;
@@ -54,7 +54,20 @@
       return clamp((innerHeight * .85 - rect.top) / (rect.height + innerHeight * .3), 0, 1);
     };
     const heroProgress = clamp(scrollY / hero.offsetHeight, 0, 1);
-    hero.style.setProperty('--headline-drift', -heroProgress * 55 + 'px');
+    hero.style.setProperty('--logo-scale', 1 - heroProgress * .8);
+    hero.style.setProperty('--logo-x', -heroProgress * 12 + 'px');
+    hero.style.setProperty('--logo-y', -heroProgress * 165 + 'px');
+    hero.style.setProperty('--letter-shift', heroProgress * 12 + 'px');
+    hero.style.setProperty('--opening-ui', .6 + heroProgress * .4);
+    hero.style.setProperty('--opening-lift', -heroProgress * 60 + 'px');
+    for (const id of ['features', 'verify', 'projects', 'challenge']) {
+      const section = document.getElementById(id);
+      const progress = progressFor(section);
+      section.style.setProperty('--flow-offset', 1 - progress);
+      section.style.setProperty('--nodes-visible', .35 + progress * .65);
+      section.style.setProperty('--nodes-y', (1 - progress) * 12 + 'px');
+      section.style.setProperty('--selected-stroke', 1 + progress * 2);
+    }
     hero.style.setProperty('--hero-y', -9 + heroProgress * 9 + 'deg');
     hero.style.setProperty('--hero-x', 5 - heroProgress * 5 + 'deg');
     hero.style.setProperty('--hero-z', -3 + heroProgress * 3 + 'deg');
@@ -85,7 +98,8 @@
     const exit = clamp((p - .75) / .25, 0, 1);
     journey.style.setProperty('--phone-x', (1 - entry) * 130 - exit * 30 + 'px');
     journey.style.setProperty('--phone-turn', (1 - entry) * -27 + 'deg');
-    journey.style.setProperty('--phone-tilt', (1 - entry) * 8 + 'deg');
+    journey.style.setProperty('--phone-tilt', (1 - entry) * 8 - exit * 4 + 'deg');
+    journey.style.setProperty('--phone-brightness', .3 + entry * .7);
     journey.style.setProperty('--phone-scale', .88 + entry * .12 - exit * .05);
     typed.textContent = promptText.slice(0, Math.round(promptText.length * clamp((p - .12) / .2, 0, 1)));
     journey.style.setProperty('--phone-route', clamp((p - .32) / .08, 0, 1));

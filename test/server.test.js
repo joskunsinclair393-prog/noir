@@ -1063,7 +1063,7 @@ test('GitHub connector is available only to the verified NOIR owner', async () =
 test('Public landing and app routes preserve desktop and legacy callback entry points', async () => {
   const base = await listen(realCreateNoirServer({ dataFile: temporaryStore() }));
   const landing = await fetch(base);
-  assert.match(await landing.text(), /Intelligence,<br>without the/);
+  assert.match(await landing.text(), /class="giant-wordmark"/);
   assert.match(landing.headers.get('vary'), /User-Agent/i);
   for (const [path, headers] of [['/app', {}], ['/?settings=connectors', {}], ['/?code=oauth-code', {}], ['/?plus=success', {}], ['/', { 'user-agent': 'NOIR/0.2 Electron/40.0' }]]) {
     const app = await fetch(base + path, { headers });
