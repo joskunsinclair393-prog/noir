@@ -1092,6 +1092,7 @@
     for (const [id, action] of [['connectorConnect', 'start'], ['connectorRead', 'read'], ['connectorDisconnect', 'disconnect']]) {
       const button = $(id);
       button.hidden = Boolean(desktopBridge) || (action !== 'start' && !availability.connected);
+      if (action === 'read') button.textContent = name === 'GitHub' ? 'List authorized repositories' : 'Preview recent items';
       if (action === 'start') button.textContent = availability.connected ? 'Reconnect' : 'Connect';
       button.onclick = async () => {
         const status = $('connectorManagerStatus');
@@ -1105,7 +1106,7 @@
             const { integrations } = await api('/api/integrations');
             updateIntegrationAvailability(integrations);
             renderConnectorManager(name);
-            status.textContent = 'Disconnected from NOIR. You can also remove access in your Google Account.';
+            status.textContent = 'Disconnected from NOIR. You can also remove access in ' + (name === 'GitHub' ? 'GitHub Settings.' : 'your Google Account.');
             return;
           }
           $('connectorManagerOutput').textContent = result.rows.map(row => row.filter(Boolean).join(' · ')).join('\n');
@@ -1432,7 +1433,7 @@
     if (connection === 'connected' || connection === 'incomplete') {
       history.replaceState(null, '', location.pathname + location.hash);
       openSettings('connectors');
-      $('connectorCallbackStatus').textContent = connection === 'connected' ? 'Google connection saved.' : 'Authorization was cancelled or incomplete. You can try again.';
+      $('connectorCallbackStatus').textContent = connection === 'connected' ? 'Connection saved.' : 'Authorization was cancelled or incomplete. You can try again.';
     }
     if (desktopBridge) document.body.classList.add('desktop-chat-ready');
   }

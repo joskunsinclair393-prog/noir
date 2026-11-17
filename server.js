@@ -1,6 +1,6 @@
 import { generateFreeCloud } from './free-cloud.js';
 import { ownerDashboard } from './owner-dashboard.js';
-import { createGoogleConnectors } from './google-connectors.js';
+import { createGitHubConnector, createGoogleConnectors } from './google-connectors.js';
 import { generateAdditional, providerJson, ProviderError, providers, readRoutingConfig, routeGeneration } from './ai-routing.js';
 export { ProviderError };
 import { searchPublicWeb } from './search-service.js';
@@ -741,11 +741,14 @@ export function createNoirServer(options = {}) {
     };
   }
 
-  const googleConnectors = createGoogleConnectors({ config, env: { ...process.env, ...options.connectorEnv }, request: options.fetchImpl || fetch });
+  const connectorOptions = { config, env: { ...process.env, ...options.connectorEnv }, request: options.fetchImpl || fetch };
+  const googleConnectors = createGoogleConnectors(connectorOptions);
+  const githubConnector = createGitHubConnector(connectorOptions);
   async function accountIntegrations(user) {
     const integrations = integrationInfo();
-    const google = await googleConnectors.status(user?.id, Object.keys(integrations.connectors));
-    if (google) Object.assign(integrations.connectors, google);
+    const names = Object.keys(integrations.connectors);
+    const [google, github] = await Promise.all([googleConnectors.status(user?.id, names), githubConnector.status(user?.id, names)]);
+    Object.assign(integrations.connectors, google, github);
     return integrations;
   }
 
@@ -963,14 +966,17 @@ export function createNoirServer(options = {}) {
         await handleStripeEvent(event);
         return sendJson(response, 200, { received: true });
       }
-      if (request.method === 'GET' && url.pathname === '/oauth/google/connectors') {
-        const binding = cookieValue(request, '__Host-noir_connector');
+      if (request.method === 'GET' && ['/oauth/google/connectors', '/oauth/github/connectors'].includes(url.pathname)) {
+        const github = url.pathname === '/oauth/github/connectors';
+        const connector = github ? githubConnector : googleConnectors;
+        const cookie = github ? '__Host-noir_github' : '__Host-noir_connector';
+        const binding = cookieValue(request, cookie);
         let connected = false;
-        try { connected = await googleConnectors.complete(url.searchParams.get('state'), binding, url.searchParams.get('code')); } catch {}
+        try { connected = await connector.complete(url.searchParams.get('state'), binding, url.searchParams.get('code')); } catch {}
         response.writeHead(303, {
           location: '/?connector=' + (connected ? 'connected' : 'incomplete'),
           'cache-control': 'no-store',
-          'set-cookie': '__Host-noir_connector=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0',
+          'set-cookie': cookie + '=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0',
         });
         return response.end();
       }
@@ -1144,12 +1150,14 @@ export function createNoirServer(options = {}) {
           const { name } = await readJsonBody(request, 2048);
           if (typeof name !== 'string' || name.length > 80) return sendJson(response, 400, { error: 'Choose a connector.' });
           checkRateLimit('connector:' + accountUser.id, false);
+          const connector = name === 'GitHub' ? githubConnector : googleConnectors;
+          const cookie = name === 'GitHub' ? '__Host-noir_github' : '__Host-noir_connector';
           if (url.pathname.endsWith('/start')) {
-            const { state, url: authorizeUrl } = googleConnectors.start(accountUser.id, name);
-            return sendJson(response, 200, { authorizeUrl }, { 'set-cookie': '__Host-noir_connector=' + state + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600' });
+            const { state, url: authorizeUrl } = connector.start(accountUser.id, name);
+            return sendJson(response, 200, { authorizeUrl }, { 'set-cookie': cookie + '=' + state + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600' });
           }
-          if (url.pathname.endsWith('/read')) return sendJson(response, 200, { rows: await googleConnectors.read(accountUser.id, name) });
-          await googleConnectors.disconnect(accountUser.id, name);
+          if (url.pathname.endsWith('/read')) return sendJson(response, 200, { rows: await connector.read(accountUser.id, name) });
+          await connector.disconnect(accountUser.id, name);
           return sendJson(response, 200, { disconnected: true });
         }
         if (request.method === 'GET' && url.pathname === '/api/bootstrap') {

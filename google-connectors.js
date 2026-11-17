@@ -7,19 +7,28 @@ const definitions = {
   Gmail: { scope: prefix + 'gmail.metadata', permissions: 'Read recent inbox subject, sender, and date headers', endpoint: () => 'https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=INBOX&maxResults=5', rows: data => data.rows },
 };
 
+const githubDefinitions = {
+  GitHub: { permissions: 'List repositories you authorized this GitHub App to access' },
+};
+
 const fail = (status, message) => Object.assign(new Error(message), { status, code: 'connector_error' });
 const challenge = value => createHash('sha256').update(value).digest('base64url');
 const stateFormat = /^[A-Za-z0-9_-]{43}$/;
-const service = name => Object.hasOwn(definitions, name) ? definitions[name] : null;
 
-export function createGoogleConnectors({ config, env = process.env, request = fetch }) {
-  const clientId = env.GOOGLE_CONNECTOR_CLIENT_ID;
-  const clientSecret = env.GOOGLE_CONNECTOR_CLIENT_SECRET;
+export const createGoogleConnectors = options => createConnectors(options, false);
+export const createGitHubConnector = options => createConnectors(options, true);
+
+function createConnectors({ config, env = process.env, request = fetch }, github) {
+  const services = github ? githubDefinitions : definitions;
+  const service = name => Object.hasOwn(services, name) ? services[name] : null;
+  const clientId = github ? env.GITHUB_CONNECTOR_CLIENT_ID : env.GOOGLE_CONNECTOR_CLIENT_ID;
+  const clientSecret = github ? env.GITHUB_CONNECTOR_CLIENT_SECRET : env.GOOGLE_CONNECTOR_CLIENT_SECRET;
+  const provider = github ? 'GitHub' : 'Google';
   const key = Buffer.from(env.CONNECTOR_ENCRYPTION_KEY || '', 'base64');
   let callback;
   try {
     const base = new URL(env.PUBLIC_APP_URL || 'https://noir-buhz.onrender.com');
-    if (base.protocol === 'https:' && !base.username && !base.password) callback = new URL('/oauth/google/connectors', base).href;
+    if (base.protocol === 'https:' && !base.username && !base.password) callback = new URL(github ? '/oauth/github/connectors' : '/oauth/google/connectors', base).href;
   } catch {}
   const configured = Boolean(clientId && clientSecret && key.length === 32 && callback && config.authRequired && config.supabaseUrl && config.supabaseServiceRoleKey);
   const attempts = new Map();
@@ -66,11 +75,12 @@ export function createGoogleConnectors({ config, env = process.env, request = fe
     return method === 'GET' ? reply.json() : undefined;
   }
   async function token(fields) {
-    const reply = await checkedFetch('https://oauth2.googleapis.com/token', {
-      method: 'POST', body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, ...fields }),
-    }, 'Google could not authorize this connector. Try connecting it again.');
+    const reply = await checkedFetch(github ? 'https://github.com/login/oauth/access_token' : 'https://oauth2.googleapis.com/token', {
+      method: 'POST', headers: { accept: 'application/json' },
+      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, ...fields }),
+    }, provider + ' could not authorize this connector. Try connecting it again.');
     const data = await reply.json();
-    if (typeof data.access_token !== 'string' || !data.access_token) throw fail(403, 'Google did not grant access.');
+    if (typeof data.access_token !== 'string' || !data.access_token) throw fail(403, provider + ' did not grant access. Try connecting it again.');
     return data;
   }
   function requireService(userId, name) {
@@ -85,7 +95,7 @@ export function createGoogleConnectors({ config, env = process.env, request = fe
       let rows;
       try { rows = await db(userId); }
       catch { return Object.fromEntries(names.filter(service).map(name => [name, { ready: false, connected: false, reason: 'storage_unavailable' }])); }
-      return Object.fromEntries(names.filter(service).map(name => [name, { ready: true, connected: rows.some(row => row.connector === name), permissions: [definitions[name].permissions] }]));
+      return Object.fromEntries(names.filter(service).map(name => [name, { ready: true, connected: rows.some(row => row.connector === name), permissions: [services[name].permissions] }]));
     },
     start(userId, name) {
       const definition = requireService(userId, name);
@@ -95,10 +105,11 @@ export function createGoogleConnectors({ config, env = process.env, request = fe
       const state = randomBytes(32).toString('base64url');
       const verifier = randomBytes(32).toString('base64url');
       attempts.set(state, { userId, name, verifier, expires: now + 600_000 });
-      const params = new URLSearchParams({ client_id: clientId, redirect_uri: callback, response_type: 'code',
-        scope: definition.scope, state, code_challenge: challenge(verifier), code_challenge_method: 'S256',
-        access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: 'false' });
-      return { state, url: 'https://accounts.google.com/o/oauth2/v2/auth?' + params };
+      const params = new URLSearchParams({ client_id: clientId, redirect_uri: callback,
+        state, code_challenge: challenge(verifier), code_challenge_method: 'S256' });
+      if (!github) for (const [key, value] of Object.entries({ response_type: 'code', scope: definition.scope,
+        access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: 'false' })) params.set(key, value);
+      return { state, url: (github ? 'https://github.com/login/oauth/authorize?' : 'https://accounts.google.com/o/oauth2/v2/auth?') + params };
     },
     async complete(state, cookie, code) {
       if (!configured || !stateFormat.test(state || '') || !stateFormat.test(cookie || '') ||
@@ -109,7 +120,7 @@ export function createGoogleConnectors({ config, env = process.env, request = fe
       const { userId, name, verifier } = pending;
       return serialize(userId, name, async () => {
         const grant = await token({ code, code_verifier: verifier, redirect_uri: callback, grant_type: 'authorization_code' });
-        if (!String(grant.scope || '').split(/\s+/).includes(definitions[name].scope) || typeof grant.refresh_token !== 'string' || !grant.refresh_token) return false;
+        if ((!github && !String(grant.scope || '').split(/\s+/).includes(services[name].scope)) || typeof grant.refresh_token !== 'string' || !grant.refresh_token) return false;
         await db(userId, name, 'POST', { user_id: userId, connector: name, refresh_ciphertext: crypt(userId, name, grant.refresh_token) });
         return true;
       });
@@ -121,6 +132,26 @@ export function createGoogleConnectors({ config, env = process.env, request = fe
     },
     async read(userId, name) {
       const definition = requireService(userId, name);
+      if (github) {
+        const accessToken = await serialize(userId, name, async () => {
+          const [row] = await db(userId, name);
+          if (!row) throw fail(404, 'Connect GitHub first.');
+          const grant = await token({ grant_type: 'refresh_token', refresh_token: crypt(userId, name, row.refresh_ciphertext, true) });
+          if (typeof grant.refresh_token !== 'string' || !grant.refresh_token) throw fail(403, 'Reconnect GitHub to renew access.');
+          await db(userId, name, 'POST', { user_id: userId, connector: name, refresh_ciphertext: crypt(userId, name, grant.refresh_token) });
+          return grant.access_token;
+        });
+        const get = async path => (await checkedFetch('https://api.github.com' + path, {
+          headers: { authorization: 'Bearer ' + accessToken, accept: 'application/vnd.github+json',
+            'x-github-api-version': '2026-03-10', 'user-agent': 'NOIR-Repository-Connector' },
+        }, 'GitHub could not list repositories. Check the app installation or reconnect.')).json();
+        const { installations } = await get('/user/installations?per_page=10');
+        const active = (installations || []).filter(item => Number.isSafeInteger(item.id) && item.id > 0 && !item.suspended_at);
+        const results = await Promise.all(active.map(item => get('/user/installations/' + item.id + '/repositories?per_page=10')));
+        const names = results.flatMap(result => result.repositories || []).map(item => item.full_name)
+          .filter(name => typeof name === 'string' && /^[a-z0-9-]+\/[a-z0-9_.-]+$/i.test(name));
+        return [...new Set(names)].slice(0, 10).map(name => [name]);
+      }
       const [row] = await db(userId, name);
       if (!row) throw fail(404, 'Connect this service first.');
       const grant = await token({ grant_type: 'refresh_token', refresh_token: crypt(userId, name, row.refresh_ciphertext, true) });
