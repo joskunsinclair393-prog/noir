@@ -454,10 +454,13 @@ export function createNoirServer(options = {}) {
     } catch {
       throw Object.assign(new Error('NOIR could not verify your sign-in. Try again.'), { status: 503, code: 'auth_unavailable' });
     }
-    if (!response.ok) throw Object.assign(new Error('Your sign-in has expired. Sign in again to continue.'), { status: 401, code: 'authentication_required' });
+    if (response.status === 401 || response.status === 403) {
+      throw Object.assign(new Error('Your sign-in has expired. Sign in again to continue.'), { status: 401, code: 'authentication_required' });
+    }
+    if (!response.ok) throw Object.assign(new Error('NOIR could not verify your sign-in. Try again.'), { status: 503, code: 'auth_unavailable' });
     let user;
     try { user = await response.json(); } catch { user = null; }
-    if (!user || typeof user.id !== 'string' || !user.id) throw Object.assign(new Error('NOIR could not verify your sign-in.'), { status: 401, code: 'authentication_required' });
+    if (!user || typeof user.id !== 'string' || !user.id) throw Object.assign(new Error('NOIR could not verify your sign-in. Try again.'), { status: 503, code: 'auth_unavailable' });
     return {
       id: user.id,
       email: typeof user.email === 'string' ? user.email : '',

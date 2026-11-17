@@ -14,6 +14,7 @@
   const authStorageKey = 'noirAuthSession';
   let authConfig = null;
   let authSession = readAuthSession();
+  let authGeneration = 0;
   let createAccountMode = false;
   app.hidden = true;
   let activeChatId = null;
@@ -192,7 +193,8 @@
   }
   let browserWorkspace;
 
-  function saveAuthSession(session) {
+  function saveAuthSession(session, refreshing = false) {
+    if (!refreshing) authGeneration++;
     if (!session && challengeDialog.open) challengeDialog.close();
     if (!session) cloudReply?.abort();
     if (!session) { localHistory = []; localHistoryKey = undefined; localStatusRequest++; if ($('connectorManager')) { $('connectorManager').hidden = true; $('connectorManagerOutput').textContent = ''; } document.body.classList.remove('desktop-chat-ready'); browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
@@ -204,18 +206,36 @@
     feedback.textContent = text;
     feedback.classList.toggle('is-success', success);
   }
-  async function refreshAuthSession() {
-    if (!authConfig?.configured || !authSession?.refresh_token) return false;
-    try {
+  let pendingRefresh;
+  function refreshAuthSession(session) {
+    if (authSession !== session) return Promise.resolve(Boolean(authSession));
+    if (!authConfig?.configured || !session?.refresh_token) return Promise.resolve(false);
+    if (pendingRefresh?.session === session) return pendingRefresh.promise;
+    const promise = (async () => {
       const response = await fetch(`${authConfig.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
         method: 'POST', headers: { apikey: authConfig.supabaseAnonKey, 'content-type': 'application/json' },
-        body: JSON.stringify({ refresh_token: authSession.refresh_token }),
+        body: JSON.stringify({ refresh_token: session.refresh_token }),
       });
+      if (authSession !== session) return Boolean(authSession);
+      if ([400, 401, 403].includes(response.status)) return false;
+      if (!response.ok) throw new Error('NOIR could not refresh your sign-in. Please try again.');
       const data = await response.json();
-      if (!response.ok || !data.access_token) { saveAuthSession(null); return false; }
-      saveAuthSession(data);
+      if (authSession !== session) return Boolean(authSession);
+      if (!data.access_token) throw new Error('NOIR could not refresh your sign-in. Please try again.');
+      saveAuthSession(data, true);
       return true;
-    } catch { return false; }
+    })().finally(() => {
+      if (pendingRefresh?.session === session) pendingRefresh = undefined;
+    });
+    pendingRefresh = { session, promise };
+    return promise;
+  }
+
+  function expireAuthSession() {
+    saveAuthSession(null);
+    closeSettings();
+    void showAuthScreen();
+    setAuthFeedback('Your sign-in expired. Please sign in again.');
   }
   async function authRequest(path, body) {
     const response = await fetch(`${authConfig.supabaseUrl}/auth/v1/${path}`, {
@@ -333,10 +353,23 @@
       credentials: 'same-origin', ...options,
       headers: { ...(options.body ? { 'content-type': 'application/json' } : {}), ...(authSession?.access_token ? { authorization: `Bearer ${authSession.access_token}` } : {}), ...(options.headers || {}) },
     });
+    const session = authSession;
+    const generation = authGeneration;
+    const requireSameAccount = () => {
+      if (generation !== authGeneration) throw Object.assign(new Error('Your sign-in changed. Please try again.'), { status: 401 });
+    };
     let response = await request();
-    if (response.status === 401 && path !== '/api/auth-config' && await refreshAuthSession()) {
-      options.signal?.throwIfAborted();
-      response = await request();
+    requireSameAccount();
+    if (response.status === 401 && session && path !== '/api/auth-config') {
+      if (!authSession) throw Object.assign(new Error('Please sign in again.'), { status: 401 });
+      if (await refreshAuthSession(session)) {
+        requireSameAccount();
+        options.signal?.throwIfAborted();
+        response = await request();
+        requireSameAccount();
+      }
+      requireSameAccount();
+      if (response.status === 401 && authSession) expireAuthSession();
     }
     if (response.ok && (onText || onEvent) && response.headers.get('content-type')?.startsWith('application/x-ndjson')) {
       const reader = response.body.getReader();
@@ -1447,7 +1480,10 @@
         if (await finishOAuthCallback()) return;
         if (authSession?.access_token) {
           try { await loadChatApp(); app.hidden = false; authGate.hidden = true; }
-          catch { saveAuthSession(null); showAuthScreen(); setAuthFeedback('Your sign-in expired. Please sign in again.'); }
+          catch (error) {
+            if (error.status === 401) expireAuthSession();
+            else setAuthFeedback('NOIR could not load your account. Refresh to try again.');
+          }
           return;
         }
         return;

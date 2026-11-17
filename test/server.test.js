@@ -996,3 +996,24 @@ test('Account storage outage preserves history and chat analytics record one out
     [['chat', 'test-model', false, 5], ['chat', 'test-model', true, 5]]);
   assert.doesNotMatch(JSON.stringify(events), /Private test prompt|Valid test answer/);
 });
+
+test('Account endpoints distinguish expired credentials from an unavailable authentication service', async () => {
+  let status = 401;
+  const server = realCreateNoirServer({
+    dataFile: temporaryStore(),
+    config: { authRequired: true, supabaseUrl: 'https://auth.example.test', supabaseAnonKey: 'public' },
+    fetchImpl: async url => {
+      assert.equal(new URL(url).pathname, '/auth/v1/user');
+      return new Response(status === 200 ? 'not-json' : '', { status });
+    },
+  });
+  const base = await listen(server);
+  const headers = { authorization: 'Bearer test-token' };
+  for (const [upstream, expected, code] of [[401, 401, 'authentication_required'], [403, 401, 'authentication_required'],
+    [429, 503, 'auth_unavailable'], [503, 503, 'auth_unavailable'], [200, 503, 'auth_unavailable']]) {
+    status = upstream;
+    const response = await fetch(base + '/api/bootstrap', { headers });
+    assert.equal(response.status, expected);
+    assert.equal((await response.json()).code, code);
+  }
+});
