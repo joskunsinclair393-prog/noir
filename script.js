@@ -29,6 +29,7 @@
   let desktopPage;
   let captureDesktopPage;
   const desktopBridge = window.noirPage;
+  const visualizationReady = desktopBridge ? null : import('./visualizations.js').catch(() => null);
   if (!desktopBridge) document.body.classList.add('web-app');
   const modelChoice = $('modelChoice');
   const modelStatus = $('modelStatus');
@@ -956,6 +957,12 @@
     if (role === 'assistant' && !state) {
       const source = desktopBridge && /\n\nSources\n\[Current page\]\((https:\/\/[^\s()]+)\)$/.exec(text);
       bubble.innerHTML = renderMarkdown(source ? text.slice(0, source.index) : text);
+      visualizationReady?.then(module => {
+        if (!module || !bubble.isConnected) return;
+        const follow = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 120;
+        module.renderVisualizations(bubble);
+        if (follow) scrollMessagesToBottom('auto');
+      });
       if (source) {
         const link = document.createElement('button');
         link.type = 'button';
@@ -1459,18 +1466,20 @@
       const routingPageConsent = Boolean(page && routing?.enabled &&
         window.confirm('Allow this reply to share the excerpt and relevant chat history with: ' + routing.providers.join(', ') + '?'));
       cloudReply = new AbortController();
+      let streamedText = '';
       $('stopLocalAI').hidden = false;
       const result = await api(page ? '/api/desktop/chat' : '/api/chat', {
         method: 'POST',
         signal: cloudReply.signal,
-        body: JSON.stringify({ stream: true, ...(page ? { desktopPage: { ...page, consent: true }, routingPageConsent, routingConsentVersion: routing?.consentVersion } : {}), chatId: activeChatId, projectId: activeChatId ? null : $('projectFilter').value || null, modelChoice: ['free-cloud', 'smart-route'].includes(chosen) ? chosen : 'auto', message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
+        body: JSON.stringify({ stream: true, ...(!desktopBridge ? { visualizations: 1 } : {}), ...(page ? { desktopPage: { ...page, consent: true }, routingPageConsent, routingConsentVersion: routing?.consentVersion } : {}), chatId: activeChatId, projectId: activeChatId ? null : $('projectFilter').value || null, modelChoice: ['free-cloud', 'smart-route'].includes(chosen) ? chosen : 'auto', message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
         onText(part) {
           const bubble = typingRow.querySelector('.bubble');
           if (typingRow.classList.contains('typing')) {
             typingRow.classList.remove('typing');
             bubble.textContent = '';
           }
-          bubble.textContent += part;
+          streamedText += part;
+          bubble.textContent = desktopBridge ? streamedText : streamedText.replace(/```noir-viz[\s\S]*/, '\nPreparing visualization…');
           scrollMessagesToBottom('auto');
         },
       });
