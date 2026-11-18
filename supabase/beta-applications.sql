@@ -31,4 +31,24 @@ end;
 $$;
 revoke all on function public.noir_review_beta_application(uuid,boolean,text,smallint,boolean) from public, anon, authenticated;
 grant execute on function public.noir_review_beta_application(uuid,boolean,text,smallint,boolean) to service_role;
+create or replace function public.noir_set_beta_access(p_email text, p_grant boolean)
+returns boolean language plpgsql security invoker set search_path = '' as $$
+declare chosen smallint;
+begin
+  lock table public.noir_beta_applications in exclusive mode;
+  if not p_grant then
+    update public.noir_beta_applications set status='rejected', pilot_slot=null, invited=false where email=p_email;
+    return true;
+  end if;
+  if exists (select 1 from public.noir_beta_applications where email=p_email and status='approved' and pilot_slot is not null) then return true; end if;
+  select slot::smallint into chosen from generate_series(1,5) slot
+    where not exists (select 1 from public.noir_beta_applications where pilot_slot=slot) order by slot limit 1;
+  if chosen is null then return false; end if;
+  insert into public.noir_beta_applications(email,intended_use,consent_version,status,pilot_slot,invited)
+    values(p_email,'Owner-approved beta access','beta-v1','approved',chosen,true)
+    on conflict(email) do update set status='approved', pilot_slot=chosen, invited=true;
+  return true;
+end; $$;
+revoke all on function public.noir_set_beta_access(text,boolean) from public, anon, authenticated;
+grant execute on function public.noir_set_beta_access(text,boolean) to service_role;
 commit;

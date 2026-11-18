@@ -40,7 +40,7 @@ export function betaAdmin(rows, state = '') {
     (value === current ? ' selected' : '') + '>' + escape(value === '0' ? 'Unassigned' : value) + '</option>').join('');
   const records = rows.map(row => `<article class="beta-record"><h2>${escape(row.email)}</h2>
   <p>${escape(row.created_at?.slice(0, 10))} UTC · ${escape(row.status)} · ${row.invited ? 'Invited' : 'Invitation pending'}</p>
-  <h3>Intended use</h3><p>${escape(row.intended_use)}</p>${row.experience ? '<h3>Testing experience</h3><p>' + escape(row.experience) + '</p>' : ''}
+  <form method="post" action="/admin/beta"><input type="hidden" name="email" value="${escape(row.email)}"><button class="button outline" name="action" value="grant">Grant access</button> <button class="button outline" name="action" value="revoke">Revoke access</button></form><h3>Intended use</h3><p>${escape(row.intended_use)}</p>${row.experience ? '<h3>Testing experience</h3><p>' + escape(row.experience) + '</p>' : ''}
   <form class="beta-form" method="post" action="/admin/beta">
     <input type="hidden" name="id" value="${escape(row.id)}">
     <label>Status<select name="status">${options(betaStatuses, row.status)}</select></label>
@@ -50,5 +50,5 @@ export function betaAdmin(rows, state = '') {
     <label class="consent"><input type="checkbox" name="confirmDelete" value="yes"> Confirm permanent deletion</label>
     <button class="button outline" name="action" value="delete">Delete application</button>
   </form></article>`).join('');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NOIR Beta Applications</title><link rel="stylesheet" href="/landing.css"></head><body><main class="shell beta-main"><a href="/admin">← Command Center</a><h1>Beta Applications</h1><p>Showing up to 100 applications, newest first. Invitations are sent manually.</p>${state ? '<p class="beta-result" role="status">' + escape(state) + '</p>' : ''}${records || '<p class="beta-result">No applications yet.</p>'}</main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NOIR Beta Applications</title><link rel="stylesheet" href="/landing.css"></head><body><main class="shell beta-main"><a href="/admin">← Command Center</a><h1>Beta Access</h1><p>Invitation-only. Five verified testers maximum; owner access is separate. Revocation takes effect on the next API request.</p><form class="beta-form" method="post" action="/admin/beta"><label>Approved tester email<input type="email" name="email" required maxlength="254" autocomplete="off"></label><button class="button" name="action" value="grant">Grant access</button><button class="button outline" name="action" value="revoke">Revoke access</button></form><p>Showing up to 100 applications, newest first. Invitations are sent manually.</p>${state ? '<p class="beta-result" role="status">' + escape(state) + '</p>' : ''}${records || '<p class="beta-result">No applications yet.</p>'}</main></body></html>`;
 }

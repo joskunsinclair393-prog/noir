@@ -311,6 +311,7 @@ export function createNoirServer(options = {}) {
     stripeLiveEnabled: env.stripeLiveEnabled ?? bool(process.env.ALLOW_LIVE_STRIPE, false),
     publicAppUrl: String(env.publicAppUrl ?? process.env.PUBLIC_APP_URL ?? '').trim().replace(/\/$/, ''),
   };
+  const privateBetaEnabled = env.privateBetaEnabled ?? config.authRequired;
   const premiumEnabled = config.paidAIEnabled && config.premiumModelAccessEnabled && config.allowRequests;
   const ownerId = env.ownerId ?? process.env.NOIR_OWNER_USER_ID;
   const ownerEnabled = config.authRequired && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(ownerId || '');
@@ -467,7 +468,7 @@ export function createNoirServer(options = {}) {
     return {
       id: user.id,
       email: typeof user.email === 'string' ? user.email : '',
-      emailConfirmed: Boolean(user.email_confirmed_at || user.confirmed_at),
+      emailConfirmed: Boolean(user.email_confirmed_at),
     };
   }
 
@@ -1002,9 +1003,18 @@ export function createNoirServer(options = {}) {
           let state = '';
           if (request.method === 'POST') {
             try {
-              const review = parseBetaReview(await readBetaForm(request));
-              const result = await ownerDatabase('/rest/v1/rpc/noir_review_beta_application', review);
-              state = await result.json() === true ? 'Application updated.' : 'Application no longer exists.';
+              const form = await readBetaForm(request);
+              if (['grant', 'revoke'].includes(form.get('action'))) {
+                const email = String(form.get('email') || '').trim().toLowerCase();
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw Object.assign(Error('Enter a valid email.'), { status: 400 });
+                if (email === user.email.toLowerCase()) throw Object.assign(Error('Owner access is preserved automatically and does not use a tester slot.'), { status: 400 });
+                const result = await ownerDatabase('/rest/v1/rpc/noir_set_beta_access', { p_email: email, p_grant: form.get('action') === 'grant' });
+                state = await result.json() === true ? 'Beta access updated.' : 'All five tester slots are occupied. Revoke access before adding another tester.';
+              } else {
+                const review = parseBetaReview(form);
+                const result = await ownerDatabase('/rest/v1/rpc/noir_review_beta_application', review);
+                state = await result.json() === true ? 'Application updated.' : 'Application no longer exists.';
+              }
             } catch (error) {
               state = error.status === 400 ? error.message : 'Could not save the review. Check whether the pilot slot is already assigned.';
             }
@@ -1059,6 +1069,18 @@ export function createNoirServer(options = {}) {
         }
         let accountUser = null;
         if (config.authRequired) accountUser = await authenticatedUser(request);
+        if (privateBetaEnabled && !isOwner(accountUser)) {
+          let approved = false;
+          if (accountUser?.emailConfirmed && accountUser.email) {
+            try {
+              const records = await ownerDatabase(betaTable + '?select=id&email=eq.' + encodeURIComponent(accountUser.email.toLowerCase()) + '&status=eq.approved&pilot_slot=not.is.null&limit=1');
+              approved = (await records.json()).length === 1;
+            } catch {
+              return sendJson(response, 503, { error: 'Beta access could not be checked. Please try again.', code: 'beta_access_unavailable' });
+            }
+          }
+          if (!approved) return sendJson(response, 403, { error: 'NOIR is invitation-only. A verified, approved email is required.', code: 'private_beta_required' });
+        }
         const getSession = (req, res) => config.authRequired ? authenticatedSessionFor(accountUser) : Promise.resolve(sessionFor(req, res));
         if (request.method === 'POST' && url.pathname === '/api/verify') {
           if (!accountUser) return sendJson(response, 401, { error: 'Sign in to verify answers.' });
@@ -1679,7 +1701,7 @@ export function createNoirServer(options = {}) {
       const legacyApp = url.pathname === '/' && (/\bElectron\//i.test(request.headers['user-agent'] || '') ||
         ['code', 'error', 'error_description', 'settings', 'connector', 'plus'].some(key => url.searchParams.has(key)));
       const publicFiles = new Map([
-        ['/visualizations.js', 'visualizations.js'], ['/visualization-schema.js', 'visualization-schema.js'], ['/visualizations.css', 'visualizations.css'],
+        ['/private-beta.js', 'private-beta.js'], ['/private-beta', 'private-beta.html'], ['/visualizations.js', 'visualizations.js'], ['/visualization-schema.js', 'visualization-schema.js'], ['/visualizations.css', 'visualizations.css'],
         ['/noir-ui.css', 'noir-ui.css'], ['/app-design.css', 'app-design.css'],
         ['/', legacyApp ? 'index.html' : 'landing.html'], ['/app', 'index.html'], ['/index.html', 'index.html'], ['/landing.css', 'landing.css'], ['/landing.js', 'landing.js'], ['/noir-landscape.jpg', 'noir-landscape.jpg'], ['/styles.css', 'styles.css'], ['/script.js', 'script.js'], ['/browser.js', 'browser.js'], ['/owner-dashboard-client.js', 'owner-dashboard-client.js'], ['/logo.svg', 'logo.svg'], ['/logo.svg.png', 'logo.svg.png'], ['/robots.txt', 'robots.txt'], ['/sitemap.xml', 'sitemap.xml'],
       ]);
@@ -1688,7 +1710,7 @@ export function createNoirServer(options = {}) {
       const filePath = join(ROOT, file);
       let content = readFileSync(filePath);
       if (url.pathname === '/') response.setHeader('vary', 'User-Agent');
-      if (file === 'index.html') response.setHeader('x-robots-tag', 'noindex');
+      if (file === 'index.html' || file === 'private-beta.html') response.setHeader('x-robots-tag', 'noindex');
       if (file === 'index.html' || file === 'landing.html') {
         const token = /^[A-Za-z0-9_-]{1,256}$/.test(config.googleSiteVerification) ? config.googleSiteVerification : '';
         const verificationMeta = token ? `<meta name="google-site-verification" content="${token}">` : '';

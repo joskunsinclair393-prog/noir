@@ -398,6 +398,7 @@
     }
     let data = {};
     try { data = await response.json(); } catch {}
+    if (response.status === 403 && data.code === 'private_beta_required') window.location.replace('/private-beta');
     if (!response.ok) throw Object.assign(new Error(data.error || `Request failed (${response.status})`), { status: response.status, code: data.code, details: data.details });
     return data;
   }
