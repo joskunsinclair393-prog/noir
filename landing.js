@@ -29,6 +29,56 @@
   const promptText = typed.textContent;
   const answerText = answer.textContent;
   const clamp = (value, low, high) => Math.max(low, Math.min(value, high));
+  const monitorJourney = document.querySelector('[data-monitor-journey]');
+  const monitorPrompt = document.querySelector('#monitor-typed');
+  const monitorAnswer = document.querySelector('#monitor-answer');
+  const monitorPromptText = monitorPrompt.textContent;
+  const monitorAnswerText = monitorAnswer.textContent;
+  const monitorPoints = [...document.querySelectorAll('.monitor-point')];
+  monitorPoints.forEach(point => {
+    point.addEventListener('click', () => {
+      const selected = point.getAttribute('aria-expanded') !== 'true';
+      monitorPoints.forEach(item => item.setAttribute('aria-expanded', String(item === point && selected)));
+    });
+    point.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { point.setAttribute('aria-expanded', 'false'); point.blur(); }
+    });
+  });
+  function renderMonitor(progress, staticMode = false) {
+    const entry = clamp(progress / .23, 0, 1);
+    const drawing = staticMode ? 1 : clamp((progress - .49) / .29, 0, 1);
+    const closeup = clamp((progress - .68) / .2, 0, 1);
+    const exit = clamp((progress - .88) / .12, 0, 1);
+    if (staticMode) monitorJourney.removeAttribute('style');
+    else {
+      const set = (key, value) => monitorJourney.style.setProperty('--monitor-' + key, value);
+      set('x', -exit * 85 + 'px');
+      set('y', (1 - entry) * 150 - exit * 35 + 'px');
+      set('yaw', -24 * (1 - entry) - exit * 6 + 'deg');
+      set('pitch', 12 * (1 - entry) + closeup * 2 + 'deg');
+      set('roll', -3 * (1 - entry) + 'deg');
+      set('scale', .82 + entry * .16 + closeup * .07 - exit * .035);
+      set('route', clamp((progress - .31) / .07, 0, 1));
+      set('chart-opacity', clamp((progress - .44) / .08, 0, 1));
+      set('chart-y', (1 - clamp((progress - .44) / .12, 0, 1)) * 24 + 'px');
+      set('chart-scale', .96 + closeup * .04);
+      set('line-offset', 1 - drawing);
+      set('chart-clip', (1 - drawing) * 100 + '%');
+      set('bars-scale', clamp((progress - .55) / .25, 0, 1));
+    }
+    monitorPrompt.textContent = monitorPromptText.slice(0, Math.round(monitorPromptText.length * (staticMode ? 1 : clamp((progress - .12) / .2, 0, 1))));
+    monitorAnswer.textContent = monitorAnswerText.slice(0, Math.round(monitorAnswerText.length * (staticMode ? 1 : clamp((progress - .36) / .15, 0, 1))));
+    const count = staticMode ? 1 : clamp((progress - .55) / .25, 0, 1);
+    document.querySelector('#monitor-visits').textContent = Math.round(18000 * count).toLocaleString('en-AU');
+    document.querySelector('#monitor-growth').textContent = '+' + Math.round(140 * count) + '%';
+    document.querySelector('#monitor-conversion').textContent = (3.8 * count).toFixed(1) + '%';
+    monitorPoints.forEach((point, index) => {
+      const visible = staticMode ? 1 : clamp((drawing - index / 6) * 6, 0, 1);
+      point.style.setProperty('--point-progress', visible);
+      point.disabled = visible < .5;
+      if (point.disabled) point.setAttribute('aria-expanded', 'false');
+    });
+  }
   let frame = 0;
 
   function render() {
@@ -40,6 +90,7 @@
       document.querySelectorAll('.chapter').forEach(section => section.removeAttribute('style'));
       typed.textContent = promptText;
       answer.textContent = answerText;
+      renderMonitor(1, true);
       return;
     }
     hero.style.setProperty('--drift', Math.round(Math.min(scrollY, hero.offsetHeight) * .09) + 'px');
@@ -110,6 +161,8 @@
     journey.style.setProperty('--phone-copy-y', 30 * (1 - exit) + 'px');
     const closing = document.querySelector('#about');
     closing.style.setProperty('--closing-scale', .93 + progressFor(closing) * .07);
+    const monitorBounds = monitorJourney.getBoundingClientRect();
+    renderMonitor(clamp((100 - monitorBounds.top) / Math.max(1, monitorBounds.height - innerHeight + 115), 0, 1));
 
   }
   const schedule = () => { if (!frame) frame = requestAnimationFrame(render); };
