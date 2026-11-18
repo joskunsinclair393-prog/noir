@@ -950,7 +950,10 @@ export function createNoirServer(options = {}) {
     const url = new URL(request.url, `http://${request.headers.host || '127.0.0.1'}`);
     try {
       if (url.pathname === '/beta' && ['GET', 'HEAD', 'POST'].includes(request.method)) {
-        if (request.method !== 'POST') return sendBetaPage(response, 200, betaForm({ submitted: url.searchParams.get('submitted') === '1' }), request.method === 'HEAD');
+        if (request.method !== 'POST') {
+          response.writeHead(302, { location: 'https://tally.so/r/BEp0DN', 'cache-control': 'no-store' });
+          return response.end();
+        }
         if (!sameOrigin(request)) return sendBetaPage(response, 403, betaForm({ error: 'Submit the application from the NOIR website.' }));
         const now = Date.now();
         while (betaRequests.length && now - betaRequests[0] >= 60_000) betaRequests.shift();

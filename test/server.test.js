@@ -1112,9 +1112,14 @@ test('Beta requests validate and deduplicate submissions and protect owner-only 
   assert.equal((await post('/beta', application)).status, 303);
   assert.equal((await post('/beta', { ...application, intendedUse: 'Overwrite' })).status, 303);
   assert.equal(rows.size, 1);
-  const receipt = await (await fetch(base + '/beta?submitted=1')).text();
-  assert.match(receipt, /Application received/);
-  assert.doesNotMatch(receipt, /pilot@example|hello/);
+  for (const method of ['GET', 'HEAD']) {
+    const redirect = await fetch(base + '/beta?submitted=1', { method, redirect: 'manual' });
+    assert.equal(redirect.status, 302);
+    assert.equal(redirect.headers.get('location'), 'https://tally.so/r/BEp0DN');
+  }
+  const homepage = await (await fetch(base)).text();
+  assert.equal((homepage.match(/href="https:\/\/tally.so\/r\/BEp0DN" target="_blank" rel="noopener noreferrer"/g) || []).length, 3);
+  assert.doesNotMatch(homepage, /href="\/beta"/);
   assert.equal((await fetch(base + '/admin/beta')).status, 403);
   assert.equal((await post('/admin/beta', { id: applicationId, action: 'delete' })).status, 403);
   const session = token => fetch(base + '/api/admin/session', { method: 'POST', headers: { authorization: 'Bearer ' + token } });
