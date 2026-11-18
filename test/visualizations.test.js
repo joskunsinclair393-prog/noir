@@ -35,6 +35,7 @@ test('sanitization retains valid diagrams, removes executable fields and reports
 test('normal chat is not asked for diagrams; explicit requests and diagram refinements are supported',()=>{
   assert.equal(wantsVisualization([{role:'user',text:'Hello there'}]),false);
   assert.equal(wantsVisualization([{role:'user',text:'Graph these numbers'}]),true);
+  assert.equal(wantsVisualization([{role:'user',text:'Show me how photosynthesis works'}]),true);
   assert.equal(wantsVisualization([{role:'assistant',text:'```noir-viz\n{}\n```'},{role:'user',text:'Add a step'}]),true);
 });
 test('website chat passes the schema to free AI, streams, saves normalized diagrams and enforces conversation isolation',async()=>{

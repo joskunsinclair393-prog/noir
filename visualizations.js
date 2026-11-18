@@ -14,6 +14,7 @@ function tooltip(target,label,frame){target.setAttribute('tabindex','0');target.
 }
 function chart(spec,frame){
   const svg=rootSVG(spec.title);let labels=spec.labels,series=spec.series;
+  if(spec.unit)svg.append(svgNode('text',{x:60,y:20,fill:'#aaa','font-size':11},'Unit: '+spec.unit));
   if(spec.type==='function'){const points=sampleFunction(spec);labels=points.map(p=>p.x);series=[{name:spec.function.kind,values:points.map(p=>p.y)}];}
   if(spec.type==='pie'){
     const values=series[0].values,total=values.reduce((sum,v)=>sum+v,0);let angle=-Math.PI/2;

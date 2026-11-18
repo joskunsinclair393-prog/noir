@@ -13,6 +13,7 @@ export function validateVisualization(value) {
   if (!['provided','illustrative','conceptual'].includes(output.dataStatus)) fail('A data provenance label is required.');
   if (value.source!=null) output.source=text(value.source,300);
   if (value.caption!=null) output.caption=text(value.caption,400);
+  if (value.unit!=null) output.unit=text(value.unit,40);
   if (['line','bar','pie'].includes(value.type)) {
     if (value.dataStatus==='conceptual') fail('Numeric charts must identify supplied or illustrative data.');
     output.labels=list(value.labels,100).map(label=>text(label,80));
@@ -81,7 +82,7 @@ export function sanitizeVisualizations(reply) {
 }
 export function wantsVisualization(messages) {
   const last=messages.at(-1)?.text||'';
-  return /\b(visuali[sz]e|diagram|flowchart|flow chart|mind map|mindmap|chart|graph|plot|timeline|decision tree|architecture diagram|process diagram|data table|structured table|compare.{0,40}visually)\b/i.test(last) ||
+  return /\b(visuali[sz]e|diagram|flowchart|flow chart|mind map|mindmap|chart|graph|plot|timeline|decision tree|architecture diagram|process diagram|data table|structured table|show me how|compare.{0,40}visually)\b/i.test(last) ||
     (messages.some(m=>m.role==='assistant'&&m.text?.includes('```noir-viz'))&&/\b(change|update|add|remove|redraw|instead|make|adjust)\b/i.test(last));
 }
 export const VISUALIZATION_INSTRUCTIONS = `When the user requests a visualization, include a short explanation plus up to 3 fenced noir-viz JSON blocks. Do not add a diagram to ordinary replies. Never invent real statistics: use only numbers supplied in the conversation or retrieved by authorized tools; otherwise ask for data, or mark explicitly requested example data illustrative. All conceptual diagrams use dataStatus conceptual. Do not claim sources were verified. Only this schema is supported:
