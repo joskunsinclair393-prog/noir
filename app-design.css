@@ -107,6 +107,7 @@ body.web-app .account-feature-form button[type="submit"],body.web-app .plus-butt
 body.web-app .profile-plan span,body.web-app .profile-usage b,body.web-app .profile-manage { color:var(--workspace-ink); }
 body.web-app .profile-plan button { color:var(--workspace-ink); background:var(--workspace-surface); border-color:var(--workspace-line); }
 body.web-app :is(button,a,input,textarea,select,summary):focus-visible { outline:2px solid var(--workspace-muted); outline-offset:3px; }
+body.web-app #prompt:focus-visible { outline:none; }
 @media(max-width:1000px) and (min-width:701px) { body.web-app .app { grid-template-columns:220px minmax(0,1fr); } body.web-app .topbar { padding-inline:16px; } }
 @media(max-width:700px) {
   body.web-app .app { grid-template-columns:minmax(0,1fr); }
