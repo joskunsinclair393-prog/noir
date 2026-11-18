@@ -24,16 +24,19 @@ app.whenReady().then(async()=>{
   await win.loadURL(base);
   const state=async p=>{
     await run(`(()=>{document.documentElement.style.scrollBehavior='auto';const j=document.querySelector('[data-monitor-journey]');scrollTo(0,j.getBoundingClientRect().top+scrollY-100+(j.offsetHeight-innerHeight+115)*${p})})()`);
-    await new Promise(resolve=>setTimeout(resolve,100));
+    await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
     return run(`({transform:getComputedStyle(document.querySelector('.monitor-device')).transform,prompt:document.querySelector('#monitor-typed').textContent,answer:document.querySelector('#monitor-answer').textContent,line:getComputedStyle(document.querySelector('.monitor-line')).strokeDashoffset,visits:document.querySelector('#monitor-visits').textContent,bars:getComputedStyle(document.querySelector('.monitor-bars span')).transform})`);
   };
   const start=await state(0),typing=await state(.25),answer=await state(.45),chart=await state(.64),complete=await state(.85),exit=await state(1),back=await state(0);
+  console.log('Animation samples', {start:start.prompt.length,typing:typing.prompt.length,answer:answer.answer.length,complete:complete.answer.length});
   assert(start.prompt.length<typing.prompt.length);
   assert(answer.answer.length<complete.answer.length);
   assert.notEqual(start.transform,complete.transform);assert.notEqual(complete.transform,exit.transform);
   assert.notEqual(chart.line,complete.line);assert.notEqual(chart.bars,complete.bars);
   assert.equal(complete.visits,'18,000');assert.deepEqual(start,back);
   await state(.85);
+  console.log('Desktop layout',await run(`(()=>{const s=document.querySelector('.monitor-screen'),g=document.querySelector('.monitor-graph');return {height:s.clientHeight,scroll:s.scrollHeight,graph:g.getBoundingClientRect().height,workspace:document.querySelector('.monitor-workspace').getBoundingClientRect().height}})()`));
+  fs.writeFileSync(path.join(temporary,'layout.png'),(await win.webContents.capturePage()).toPNG());console.log('Layout screenshot',temporary);
   assert(await run(`(()=>{const s=document.querySelector('.monitor-screen'),g=document.querySelector('.monitor-graph');return s.scrollHeight<=s.clientHeight+1&&g.getBoundingClientRect().height>90})()`));
   await run(`document.querySelectorAll('.monitor-point')[3].click()`);
   assert(await run(`(()=>{const p=document.querySelectorAll('.monitor-point')[3];return p.getAttribute('aria-expanded')==='true'&&getComputedStyle(p.querySelector('.monitor-tooltip')).display==='block'})()`));

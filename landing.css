@@ -373,7 +373,7 @@ p,h1,h2,h3,figure{margin:0}
 }
 
 /* An original, unbranded aluminium laptop; the NOIR screen remains live HTML/SVG. */
-.laptop-hardware { width:94%; margin-inline:auto; }
+.laptop-hardware { width:80%; margin-inline:auto; container-type:inline-size; }
 .laptop-hardware .monitor-bezel { padding:10px 8px 0; border-radius:17px 17px 5px 5px; background:linear-gradient(135deg,#8a8a8e,#222225 5%,#09090a 50%,#5c5c60); border-color:#747479; box-shadow:0 25px 70px #0009,inset 0 1px 1px #fff5; }
 .laptop-hardware .monitor-bezel::after { border-radius:15px 15px 4px 4px; }
 .laptop-hardware .monitor-bezel::before { content:''; position:absolute; top:4px; left:50%; width:3px; height:3px; border-radius:50%; background:#404045; box-shadow:0 0 0 1px #111; }
@@ -395,4 +395,32 @@ p,h1,h2,h3,figure{margin:0}
   .laptop-keyboard { height:31px; padding:1px 3px; border-radius:3px; }.laptop-trackpad { height:16px; margin-top:4px; border-radius:2px; }
   .laptop-speaker { top:8px; height:26px; background-size:2px 2px; }.laptop-front { margin-top:-13px; height:5px; }
   .laptop-front span { height:3px; }
+}
+
+/* Detailed physical keyboard and palm rest, drawn as individual vector parts. */
+.laptop-deck { width:109%; margin-left:-4.5%; height:auto; padding:0; aspect-ratio:1000/270; transform:none; border:0; border-radius:0 0 12px 12px; clip-path:none; background:transparent; box-shadow:none; }
+.laptop-deck-art { display:block; width:100%; height:100%; filter:drop-shadow(0 16px 22px #0006); }
+.laptop-front { width:108.5%; margin:0 0 0 -4.25%; height:6px; border-color:#a2a2a8; border-radius:0 0 45% 45%; background:linear-gradient(#c5c5ca,#727279 65%,#35353b); }
+.laptop-front span { display:none; }
+.laptop-hardware .monitor-chin { height:9px; }.laptop-hardware .monitor-chin span { display:none; }
+.laptop-hardware .monitor-bezel::before { display:none; }
+.laptop-notch { position:absolute; z-index:2; top:8px; left:45%; width:10%; height:13px; border-radius:0 0 6px 6px; background:#050506; }
+.laptop-notch i { position:absolute; top:4px; left:calc(50% - 2px); width:4px; height:4px; border-radius:50%; background:#16242b; box-shadow:inset 0 0 0 1px #33404a; }
+@media(min-width:761px) {
+  .laptop-hardware .monitor-screen { grid-template-rows:minmax(0,1fr); }
+  .laptop-hardware .monitor-sidebar { min-height:0; padding:2cqw 1cqw; gap:.65cqw; font-size:1.2cqw; }
+  .laptop-hardware .monitor-sidebar>strong { font-size:3cqw; margin-bottom:1.3cqw; }
+  .laptop-hardware .monitor-sidebar>span { padding:.6cqw; }
+  .laptop-hardware .monitor-sidebar .monitor-history { font-size:.9cqw; }
+  .laptop-hardware .monitor-workspace { padding:2cqw; gap:.8cqw; }
+  .laptop-hardware :is(.monitor-prompt,.monitor-analysis,.monitor-chart-heading) { font-size:1.3cqw; }
+  .laptop-hardware :is(.monitor-top,.monitor-routing,.monitor-composer) { font-size:1cqw; }
+  .laptop-hardware .monitor-chart { padding:1.3cqw; gap:.6cqw; }
+  .laptop-hardware .monitor-chart-heading small,.laptop-hardware .monitor-stats small { font-size:.95cqw; }
+  .laptop-hardware .monitor-stats b { font-size:2.7cqw; }
+  .laptop-hardware .monitor-stats { padding:.5cqw 0; }
+}
+@media(max-width:760px) {
+  .laptop-deck { height:auto; padding:0; }.laptop-front { height:4px; margin-top:0; }
+  .laptop-hardware .monitor-chin { height:5px; }.laptop-notch { top:4px; height:6px; border-radius:0 0 3px 3px; }.laptop-notch i { top:2px; width:2px; height:2px; }
 }
