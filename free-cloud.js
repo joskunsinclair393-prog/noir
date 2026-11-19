@@ -1,7 +1,7 @@
 // Use OpenRouter's explicit free router. Client input cannot select a paid model.
 import { providerJson, ProviderError } from './ai-routing.js';
 
-export async function generateFreeCloud({ apiKey, messages, instructions, maxOutputTokens, onText, preferredModel, fetchImpl = fetch }) {
+export async function generateFreeCloud({ apiKey, messages, instructions, maxOutputTokens, onText, preferredModel, responseMode = 'instant', fetchImpl = fetch }) {
   if (messages.some(message => message.attachments?.length)) throw new ProviderError(400, 'The free cloud model accepts text only.');
   const response = await fetchImpl('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -12,6 +12,7 @@ export async function generateFreeCloud({ apiKey, messages, instructions, maxOut
       messages: [{ role: 'system', content: instructions }, ...messages.map(({ role, text }) => ({ role, content: text }))],
       max_tokens: Math.min(1024, maxOutputTokens),
       stream: Boolean(onText),
+      ...(responseMode === 'think' ? { reasoning: { effort: 'high', exclude: true }, provider: { require_parameters: true } } : {}),
     }),
   });
   const data = onText && response.ok ? await readFreeStream(response, onText) : await providerJson(response, 'openrouter');

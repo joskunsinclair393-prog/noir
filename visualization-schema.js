@@ -11,6 +11,8 @@ export function validateVisualization(value) {
   if (value.version!==1 || !VISUAL_TYPES.includes(value.type)) fail('Unsupported visualization version or type.');
   const output = { version:1, type:value.type, title:text(value.title), dataStatus:value.dataStatus };
   if (!['provided','illustrative','conceptual'].includes(output.dataStatus)) fail('A data provenance label is required.');
+  if (value.layout!=null) { if (!['horizontal','vertical'].includes(value.layout)) fail('Choose a horizontal or vertical layout.'); output.layout=value.layout; }
+  if (value.colors!=null) { if (!Array.isArray(value.colors)||!value.colors.length||value.colors.length>4||value.colors.some(c=>typeof c!=='string'||!/^#[a-f0-9]{6}$/i.test(c))) fail('Use up to four hexadecimal colors.'); output.colors=value.colors; }
   if (value.source!=null) output.source=text(value.source,300);
   if (value.caption!=null) output.caption=text(value.caption,400);
   if (value.unit!=null) output.unit=text(value.unit,40);

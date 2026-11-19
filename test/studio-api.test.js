@@ -1,0 +1,15 @@
+import test from 'node:test';import assert from 'node:assert/strict';import{mkdtempSync,rmSync}from'node:fs';import{tmpdir}from'node:os';import{join}from'node:path';import{createNoirServer}from'../server.js';
+test('Studio HTTP access is verified, beta-gated and bound to the authenticated actor',async()=>{
+ const folder=mkdtempSync(join(tmpdir(),'noir-studio-test-')),owner='11111111-1111-4111-8111-111111111111',id='22222222-2222-4222-8222-222222222222';let saved,conflict=false,denied=false;
+ const server=createNoirServer({dataFile:join(folder,'store.json'),config:{authRequired:true,ownerId:owner,supabaseUrl:'https://auth.example',supabaseAnonKey:'public',supabaseServiceRoleKey:'secret'},fetchImpl:async(raw,init)=>{const u=new URL(raw);if(u.pathname==='/auth/v1/user'){const token=init.headers.authorization.slice(7);return Response.json({id:token==='owner'?owner:id,email:token+'@example.test',email_confirmed_at:token==='unverified'?null:'2026-01-01'});}if(u.pathname.endsWith('/noir_beta_applications'))return Response.json([]);if(u.pathname.endsWith('/noir_studio_action')){saved=JSON.parse(init.body);assert.equal(saved.p_actor,owner);assert.equal(saved.p_email,'owner@example.test');if(denied)return Response.json({message:'Read-only project'},{status:400});if(conflict)return Response.json({conflict:true});return Response.json({id,revision:2});}throw Error('Unexpected request');}});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;const post=(token,body)=>fetch(base+'/api/studio',{method:'POST',headers:{'content-type':'application/json',...(token&&{authorization:'Bearer '+token})},body:JSON.stringify(body)});
+ try{
+ assert.equal((await post(null,{action:'create',name:'Private'})).status,401);for(const token of ['other','unverified'])assert.equal((await post(token,{action:'create',name:'Private'})).status,403);
+ assert.equal((await post('owner',{action:'create',name:'Private',p_actor:id,role:'owner'})).status,200);assert.equal(saved.p_payload.name,'Private');assert.equal(saved.p_actor,owner);assert.equal('role'in saved.p_payload,false);
+ assert.equal((await post('owner',{action:'save',id,revision:1,name:'Private',data:{files:[{id:'a',name:'x',type:'executable',content:'x'}]}})).status,400);
+ conflict=true;assert.equal((await post('owner',{action:'save',id,revision:1,name:'Private',data:{files:[]}})).status,409);conflict=false;
+ denied=true;assert.equal((await post('owner',{action:'save',id,revision:1,name:'Private',data:{files:[]}})).status,403);denied=false;
+ const invite=await(await post('owner',{action:'invite',id,email:'test@example.test',role:'viewer'})).json();assert.match(invite.invitePath,/studioInvite=[a-f0-9]{64}$/);assert.equal(saved.p_payload.tokenHash.length,64);assert.equal(invite.invitePath.endsWith(saved.p_payload.tokenHash),false);
+ assert.equal((await post('owner',{action:'accept',token:'short'})).status,400);assert.equal((await post('owner',{action:'member',id,userId:id,role:'owner'})).status,400);
+ }finally{server.closeAllConnections();await new Promise(r=>server.close(r));rmSync(folder,{recursive:true,force:true});}
+});

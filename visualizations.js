@@ -4,7 +4,7 @@ let sequence=0;
 const node=(tag,attributes={},content)=>{const element=document.createElement(tag);for(const [key,value] of Object.entries(attributes))element.setAttribute(key,String(value));if(content!=null)element.textContent=String(content);return element;};
 const svgNode=(tag,attributes={},content)=>{const element=document.createElementNS(NS,tag);for(const [key,value] of Object.entries(attributes))element.setAttribute(key,String(value));if(content!=null)element.textContent=String(content);return element;};
 const format=value=>typeof value==='number'?new Intl.NumberFormat(undefined,{maximumSignificantDigits:5}).format(value):String(value??'');
-const colors=['#dedee3','#9d9da6','#72727e','#4e4e5c'];
+const defaultColors=['#dedee3','#9d9da6','#72727e','#4e4e5c'];
 const provenance={provided:'Conversation / supplied data · Not independently verified',illustrative:'Illustrative sample data · Not real statistics',conceptual:'Conceptual explanation · Check important details'};
 function button(label,action){const b=node('button',{type:'button'},label);b.onclick=action;return b;}
 function rootSVG(title,width=760,height=360){const svg=svgNode('svg',{viewBox:`0 0 ${width} ${height}`,role:'img','aria-label':title,tabindex:'0'});svg.append(svgNode('title',{},title));return svg;}
@@ -13,6 +13,7 @@ function tooltip(target,label,frame){target.setAttribute('tabindex','0');target.
   const hide=()=>{frame.querySelector('.viz-tooltip').hidden=true;};target.addEventListener('pointerenter',show);target.addEventListener('focus',show);target.addEventListener('pointerleave',hide);target.addEventListener('blur',hide);target.addEventListener('keydown',e=>{if(e.key==='Escape')hide();});
 }
 function chart(spec,frame){
+  const colors=spec.colors||defaultColors;
   const svg=rootSVG(spec.title);let labels=spec.labels,series=spec.series;
   if(spec.unit)svg.append(svgNode('text',{x:60,y:20,fill:'#aaa','font-size':11},'Unit: '+spec.unit));
   if(spec.type==='function'){const points=sampleFunction(spec);labels=points.map(p=>p.x);series=[{name:spec.function.kind,values:points.map(p=>p.y)}];}
@@ -56,13 +57,14 @@ function graph(spec,frame){
     width=Math.max(760,(Math.max(...groups.keys())+1)*230+50);height=Math.max(300,...[...groups.values()].map(g=>g.length*120+40));
     for(const [rank,nodes] of groups)nodes.forEach((n,i)=>positions.set(n.id,{x:135+rank*230,y:height/2+(i-(nodes.length-1)/2)*120}));
   }
+  if(spec.layout==='vertical'&&spec.type!=='timeline'&&spec.type!=='mindmap'){for(const [id,p]of positions)positions.set(id,{x:p.y*1.6,y:p.x*.7});const original=width;width=Math.max(760,height*1.6);height=Math.max(400,original*.7+60);}
   const svg=rootSVG(spec.title,width,height),marker='noir-arrow-'+(++sequence),defs=svgNode('defs'),arrow=svgNode('marker',{id:marker,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:6,markerHeight:6,orient:'auto-start-reverse'});arrow.append(svgNode('path',{d:'M0 0L10 5L0 10Z',fill:'#aaa'}));defs.append(arrow);svg.append(defs);
   if(spec.type==='timeline'&&spec.nodes.length>1)svg.append(svgNode('path',{d:`M380 60V${height-60}`,stroke:'#666','stroke-width':2}));
-  for(const edge of spec.edges){const a=positions.get(edge.from),b=positions.get(edge.to);const vertical=spec.type==='timeline';const x1=a.x+(vertical?0:85),y1=a.y+(vertical?38:0),x2=b.x-(vertical?0:85),y2=b.y-(vertical?38:0);
+  for(const edge of spec.edges){const a=positions.get(edge.from),b=positions.get(edge.to);const vertical=spec.type==='timeline'||spec.layout==='vertical';const x1=a.x+(vertical?0:85),y1=a.y+(vertical?38:0),x2=b.x-(vertical?0:85),y2=b.y-(vertical?38:0);
     svg.append(svgNode('path',{d:vertical?`M${x1} ${y1}L${x2} ${y2}`:`M${x1} ${y1}C${(x1+x2)/2} ${y1} ${(x1+x2)/2} ${y2} ${x2} ${y2}`,fill:'none',stroke:'#999','stroke-width':1.5,'marker-end':`url(#${marker})`}));
     if(edge.label)svg.append(svgNode('text',{x:(x1+x2)/2,y:(y1+y2)/2-8,'text-anchor':'middle',fill:'#bbb','font-size':11},edge.label));
   }
-  for(const n of spec.nodes){const {x,y}=positions.get(n.id),g=svgNode('g',{class:'viz-node'});g.append(n.shape==='decision'?svgNode('path',{d:`M${x} ${y-48}L${x+94} ${y}L${x} ${y+48}L${x-94} ${y}Z`,fill:'#202023',stroke:'#74747d'}):svgNode('rect',{x:x-85,y:y-38,width:170,height:76,rx:11,fill:'#202023',stroke:'#74747d'}));
+  for(const n of spec.nodes){const {x,y}=positions.get(n.id),g=svgNode('g',{class:'viz-node'});g.append(n.shape==='decision'?svgNode('path',{d:`M${x} ${y-48}L${x+94} ${y}L${x} ${y+48}L${x-94} ${y}Z`,fill:'#202023',stroke:spec.colors?.[0]||'#74747d'}):svgNode('rect',{x:x-85,y:y-38,width:170,height:76,rx:11,fill:'#202023',stroke:spec.colors?.[0]||'#74747d'}));
     const words=n.label.match(/.{1,23}(?:\s|$)|.{1,23}/g)||[n.label];words.slice(0,4).forEach((word,i)=>g.append(svgNode('text',{x,y:y+(i-(Math.min(words.length,4)-1)/2)*15,'text-anchor':'middle',fill:'#eee','font-size':12},word.trim())));tooltip(g,n.label,frame);svg.append(g);
   }return svg;
 }

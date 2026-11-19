@@ -30,12 +30,12 @@ export function parseBetaReview(form) {
   const status = form.get('status');
   const slot = form.get('slot');
   const invited = form.get('invited') === 'yes';
-  if (action !== 'save' || !betaStatuses.includes(status) || !/^[0-5]$/.test(slot || '') ||
+  if (action !== 'save' || !betaStatuses.includes(status) || !/^(?:[0-9]|[1-9][0-9]|100)$/.test(slot || '') ||
       ((slot !== '0' || invited) && status !== 'approved')) throw invalid('Only approved applicants can be invited or assigned a pilot slot.');
   return { p_id: id, p_status: status, p_slot: Number(slot) || null, p_invited: invited };
 }
 
-export function betaAdmin(rows, state = '') {
+export function betaAdmin(rows, state = '', limit = 5, feedback = []) {
   const options = (values, current) => values.map(value => '<option value="' + escape(value) + '"' +
     (value === current ? ' selected' : '') + '>' + escape(value === '0' ? 'Unassigned' : value) + '</option>').join('');
   const records = rows.map(row => `<article class="beta-record"><h2>${escape(row.email)}</h2>
@@ -44,11 +44,11 @@ export function betaAdmin(rows, state = '') {
   <form class="beta-form" method="post" action="/admin/beta">
     <input type="hidden" name="id" value="${escape(row.id)}">
     <label>Status<select name="status">${options(betaStatuses, row.status)}</select></label>
-    <label>First five tester slot<select name="slot">${options(['0','1','2','3','4','5'], String(row.pilot_slot || 0))}</select></label>
+    <label>Tester slot<select name="slot">${options(Array.from({length:limit+1},(_,i)=>String(i)), String(row.pilot_slot || 0))}</select></label>
     <label class="consent"><input type="checkbox" name="invited" value="yes"${row.invited ? ' checked' : ''}> Invitation sent manually</label>
     <button class="button outline" name="action" value="save">Save review</button>
     <label class="consent"><input type="checkbox" name="confirmDelete" value="yes"> Confirm permanent deletion</label>
     <button class="button outline" name="action" value="delete">Delete application</button>
   </form></article>`).join('');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NOIR Beta Applications</title><link rel="stylesheet" href="/landing.css"></head><body><main class="shell beta-main"><a href="/admin">← Command Center</a><h1>Beta Access</h1><p>Invitation-only. Five verified testers maximum; owner access is separate. Revocation takes effect on the next API request.</p><form class="beta-form" method="post" action="/admin/beta"><label>Approved tester email<input type="email" name="email" required maxlength="254" autocomplete="off"></label><button class="button" name="action" value="grant">Grant access</button><button class="button outline" name="action" value="revoke">Revoke access</button></form><p>Showing up to 100 applications, newest first. Invitations are sent manually.</p>${state ? '<p class="beta-result" role="status">' + escape(state) + '</p>' : ''}${records || '<p class="beta-result">No applications yet.</p>'}</main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NOIR Beta Applications</title><link rel="stylesheet" href="/landing.css"></head><body><main class="shell beta-main"><a href="/admin">← Command Center</a><h1>Beta Access</h1><p>Invitation-only. ${limit} verified testers maximum; owner access is separate. Revocation takes effect on the next API request.</p><form class="beta-form" method="post" action="/admin/beta"><label>Approved tester email<input type="email" name="email" required maxlength="254" autocomplete="off"></label><button class="button" name="action" value="grant">Grant access</button><button class="button outline" name="action" value="revoke">Revoke access</button></form><form class="beta-form" method="post" action="/admin/beta"><label>Beta stage<select name="limit">${options([5,25,100].map(String),String(limit))}</select></label><button class="button outline" name="action" value="stage">Set tester limit</button><p>Expansion is manual. Existing approvals remain unchanged. Revoke higher-numbered slots before reducing the limit.</p></form><p>Showing up to 100 applications, newest first. Invitations are sent manually.</p>${state ? '<p class="beta-result" role="status">' + escape(state) + '</p>' : ''}${records || '<p class="beta-result">No applications yet.</p>'}<h2>Tester feedback</h2>${feedback.map(item=>'<article class="beta-record"><h3>'+escape(item.category)+' · '+escape(item.created_at?.slice(0,10))+'</h3><p>'+escape(item.message)+'</p></article>').join('') || '<p>No feedback yet.</p>'}</main></body></html>`;
 }

@@ -56,3 +56,8 @@ test('website chat passes the schema to free AI, streams, saves normalized diagr
     invalid=true;const error=await(await post({message:'Draw a chart',visualizations:1})).json();assert.match(error.chat.messages.at(-1).text,/Visualization unavailable/);
   }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));rmSync(folder,{recursive:true,force:true});}
 });
+
+test('Studio diagram styles accept bounded colors/layouts and reject CSS injection',()=>{
+ const spec={version:1,type:'flowchart',title:'Process',dataStatus:'conceptual',nodes:[{id:'a',label:'Start'}],edges:[],layout:'vertical',colors:['#ffffff','#111111']};
+ assert.deepEqual(validateVisualization(spec).colors,spec.colors);assert.equal(validateVisualization(spec).layout,'vertical');assert.throws(()=>validateVisualization({...spec,colors:['url(https://example.com)']}));assert.throws(()=>validateVisualization({...spec,layout:'execute'}));
+});

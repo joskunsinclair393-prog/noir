@@ -32,6 +32,8 @@
   const visualizationReady = desktopBridge ? null : import('./visualizations.js').catch(() => null);
   if (!desktopBridge) document.body.classList.add('web-app');
   let voice;
+  let workspace;
+  let studio;
   if (!desktopBridge) import('./voice.js').then(({ mountVoice }) => {
     voice = mountVoice({ input, send: text => send(text), cancel: () => $('stopLocalAI').click(),
       busy: () => sending || checkingModel, available: () => !app.hidden,
@@ -205,7 +207,7 @@
   function saveAuthSession(session, refreshing = false) {
     if (!refreshing) authGeneration++;
     if (!session && challengeDialog.open) challengeDialog.close();
-    if (!session) { cloudReply?.abort(); voice?.exit(); }
+    if (!session) { cloudReply?.abort(); voice?.reset(); studio?.reset(); }
     if (!session) { localHistory = []; localHistoryKey = undefined; localStatusRequest++; if ($('connectorManager')) { $('connectorManager').hidden = true; $('connectorManagerOutput').textContent = ''; } document.body.classList.remove('desktop-chat-ready'); browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
     authSession = session;
     try { session ? localStorage.setItem(authStorageKey, JSON.stringify(session)) : localStorage.removeItem(authStorageKey); } catch {}
@@ -1013,6 +1015,11 @@
       verify.type = 'button';
       verify.onclick = () => void verifyAnswer(text, originalPrompt);
       actions.append(copy, regenerate, challenge, verify);
+      if (!desktopBridge) {
+        const saveToStudio = document.createElement('button'); saveToStudio.type = 'button'; saveToStudio.textContent = 'Save to Studio';
+        saveToStudio.onclick = () => studio ? studio.importText(text).catch(error => showNotice(error.message)) : showNotice('Studio is loading. Please try again.');
+        actions.append(saveToStudio);
+      }
       row.append(actions);
       if (model) {
         const attribution = challengeItem('small', 'Powered by ' + model);
@@ -1069,6 +1076,7 @@
   }
 
   async function openChat(id) {
+    studio?.hide();
     browserWorkspace?.showAssistant();
     if (sending || id === activeChatId) return;
     try {
@@ -1099,6 +1107,7 @@
   }
 
   function startNewChat(focus = true) {
+    studio?.hide();
     browserWorkspace?.showAssistant();
     if (sending) return;
     if (desktopPage) attachDesktopPage(undefined);
@@ -1289,6 +1298,29 @@
 
   // Website presentation reuses the existing actions; the desktop shell keeps its own layout.
   if (!desktopBridge) {
+    import('./workspace.js').then(({ mountWorkspace }) => {
+      workspace = mountWorkspace({ available: () => !app.hidden, onMode: () => {}, feedback: () => {
+        const message = window.prompt('Feedback or bug report (maximum 2,000 characters). Include steps and expected behavior for a bug. Do not include passwords or private conversations.');
+        if (!message?.trim()) return;
+        if (!window.confirm('Send this feedback to the NOIR owner? It is linked to your account for abuse prevention.')) return;
+        api('/api/feedback', { method: 'POST', body: JSON.stringify({ category: /^bug[:\s]/i.test(message) ? 'bug' : 'feedback', message, consent: true }) }).then(() => showNotice('Feedback sent. Thank you.')).catch(error => showNotice(error.message));
+      }, openStudio: show => {
+        if (show && studio) studio.show();
+        else if (show) showNotice('Studio is still loading. Please try again.');
+        else { studio?.hide(); $('assistantView').hidden = false; }
+      } });
+    }).catch(() => showNotice('Workspace controls could not load. Refresh to retry.'));
+    import('./studio.js').then(({ mountStudio }) => {
+      studio = mountStudio({ api, available: () => !app.hidden, model: () => ['free-cloud','smart-route'].includes(modelChoice.value) ? modelChoice.value : 'auto', responseMode: () => workspace?.mode() || 'instant',
+        openVoice: (send, cancel, initial) => voice?.open(send, cancel, initial), voiceReply: text => voice?.reply(text), voiceError: text => voice?.error(text),
+        onChat: ({ chat, session }) => { updateChatSummary(chat); updateSession(session); }, chatView: $('assistantView') });
+      const checkInvitation = () => {
+        const token = new URL(location.href).searchParams.get('studioInvite');
+        if (!app.hidden && new URL(location.href).searchParams.get('workspace') === 'studio') { const url = new URL(location.href); url.searchParams.delete('workspace'); history.replaceState(null, '', url); void studio.show(); }
+        if (token && !app.hidden) { const url = new URL(location.href); url.searchParams.delete('studioInvite'); history.replaceState(null, '', url); studio.accept(token).catch(error => showNotice(error.message)); }
+      };
+      new MutationObserver(checkInvitation).observe(app, { attributes: true, attributeFilter: ['hidden'] }); checkInvitation();
+    }).catch(() => showNotice('Studio could not load. Refresh to retry.'));
     $('workspaceNav').hidden = false;
     $('welcomeTools').hidden = false;
     document.querySelector('.brand span').textContent = 'NOIR.';
@@ -1327,7 +1359,7 @@
         if (expanded) { setSidebar(true); $('projectFilter').focus({ preventScroll: true }); }
         return;
       }
-      if (action === 'chat') { browserWorkspace?.showAssistant(); input.focus({ preventScroll: true }); }
+      if (action === 'chat') { studio?.hide(); $('assistantView').hidden = false; browserWorkspace?.showAssistant(); input.focus({ preventScroll: true }); }
       if (action === 'settings' || action === 'models') {
         openSettings('general');
         if (action === 'models') modelChoice.focus({ preventScroll: true });
@@ -1413,6 +1445,7 @@
       return;
     }
     sending = true;
+    workspace?.busy(true);
     modelChoice.disabled = true;
     $('send').disabled = true;
     input.disabled = true;
@@ -1420,6 +1453,12 @@
     const attachmentNames = pickedFiles.map(file => file.name);
     const userRow = options.regenerate || options.edit ? null : addMessage('user', value, null, '', true, attachmentNames);
     const typingRow = addTyping();
+    let thinkingTimer;
+    if (!desktopBridge && workspace?.mode() === 'think') {
+      const elapsed = document.createElement('span'); elapsed.className = 'think-progress';
+      elapsed.textContent = 'Thinking · 0s'; typingRow.append(elapsed); const began = Date.now();
+      thinkingTimer = setInterval(() => { elapsed.textContent = 'Thinking · ' + Math.floor((Date.now() - began) / 1000) + 's'; }, 1000);
+    }
     $('welcome').hidden = true;
     try {
       if (localModel) {
@@ -1479,7 +1518,7 @@
       const result = await api(page ? '/api/desktop/chat' : '/api/chat', {
         method: 'POST',
         signal: cloudReply.signal,
-        body: JSON.stringify({ stream: true, ...(!desktopBridge ? { visualizations: 1 } : {}), ...(page ? { desktopPage: { ...page, consent: true }, routingPageConsent, routingConsentVersion: routing?.consentVersion } : {}), chatId: activeChatId, projectId: activeChatId ? null : $('projectFilter').value || null, modelChoice: ['free-cloud', 'smart-route'].includes(chosen) ? chosen : 'auto', message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
+        body: JSON.stringify({ stream: true, ...(!desktopBridge ? { visualizations: 1, responseMode: workspace?.mode() || 'instant' } : {}), ...(page ? { desktopPage: { ...page, consent: true }, routingPageConsent, routingConsentVersion: routing?.consentVersion } : {}), chatId: activeChatId, projectId: activeChatId ? null : $('projectFilter').value || null, modelChoice: ['free-cloud', 'smart-route'].includes(chosen) ? chosen : 'auto', message: value, regenerate: Boolean(options.regenerate), edit: Boolean(options.edit), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, attachments: encodedAttachments, plugins: pluginNames }),
         onText(part) {
           const bubble = typingRow.querySelector('.bubble');
           if (typingRow.classList.contains('typing')) {
@@ -1517,6 +1556,7 @@
       if (error.code === 'insufficient_credits') showNotice(error.message);
     } finally {
       sending = false;
+      clearInterval(thinkingTimer); workspace?.busy(false);
       cloudReply = undefined;
       localOutput = undefined;
       $('stopLocalAI').hidden = true;
@@ -1620,7 +1660,7 @@
       }
     }
   }
-  import('./browser.js').then(({ createBrowserWorkspace }) => {
+  (desktopBridge ? import('./browser.js') : Promise.resolve({ createBrowserWorkspace: () => null })).then(({ createBrowserWorkspace }) => {
     browserWorkspace = createBrowserWorkspace({
       explore: (url, question, research) => api('/api/browser/explore', { method: 'POST', body: JSON.stringify({ url, question, research, consent: true }) }),
       explorationStatus: id => api('/api/browser/explore?id=' + encodeURIComponent(id)),
