@@ -31,6 +31,13 @@
   const desktopBridge = window.noirPage;
   const visualizationReady = desktopBridge ? null : import('./visualizations.js').catch(() => null);
   if (!desktopBridge) document.body.classList.add('web-app');
+  let voice;
+  if (!desktopBridge) import('./voice.js').then(({ mountVoice }) => {
+    voice = mountVoice({ input, send: text => send(text), cancel: () => $('stopLocalAI').click(),
+      busy: () => sending || checkingModel, available: () => !app.hidden,
+      triggerHost: document.querySelector('.composer') });
+  }).catch(() => {});
+
   const modelChoice = $('modelChoice');
   const modelStatus = $('modelStatus');
   let localModels = [];
@@ -198,7 +205,7 @@
   function saveAuthSession(session, refreshing = false) {
     if (!refreshing) authGeneration++;
     if (!session && challengeDialog.open) challengeDialog.close();
-    if (!session) cloudReply?.abort();
+    if (!session) { cloudReply?.abort(); voice?.exit(); }
     if (!session) { localHistory = []; localHistoryKey = undefined; localStatusRequest++; if ($('connectorManager')) { $('connectorManager').hidden = true; $('connectorManagerOutput').textContent = ''; } document.body.classList.remove('desktop-chat-ready'); browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
     authSession = session;
     try { session ? localStorage.setItem(authStorageKey, JSON.stringify(session)) : localStorage.removeItem(authStorageKey); } catch {}
@@ -1493,6 +1500,7 @@
       }
       const answer = result.chat.messages.at(-1);
       addMessage('assistant', answer.text, null, '', true, [], value, answer.smartRoute ? answer.model : undefined);
+      voice?.reply(answer.text);
       updateChatSummary(result.chat);
       updateSession(result.session);
       if (sessionInfo?.provider.ready) showNotice('', false);
@@ -1500,6 +1508,7 @@
       editingLastMessage = false;
     } catch (error) {
       failed = true;
+      voice?.error(error.message);
       userRow?.remove();
       typingRow.remove();
       if (error.code === 'daily_token_limit') showDailyLimit(error.details);
@@ -1516,7 +1525,7 @@
       input.disabled = false;
       if (!options.regenerate) input.value = failed ? value : '';
       resize();
-      if (!options.regenerate && $('limitBackdrop').hidden) input.focus({ preventScroll: true });
+      if (!options.regenerate && !document.querySelector('.noir-voice[open]') && $('limitBackdrop').hidden) input.focus({ preventScroll: true });
     }
   }
 

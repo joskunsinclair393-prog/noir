@@ -1701,7 +1701,7 @@ export function createNoirServer(options = {}) {
       const legacyApp = url.pathname === '/' && (/\bElectron\//i.test(request.headers['user-agent'] || '') ||
         ['code', 'error', 'error_description', 'settings', 'connector', 'plus'].some(key => url.searchParams.has(key)));
       const publicFiles = new Map([
-        ['/private-beta.js', 'private-beta.js'], ['/private-beta', 'private-beta.html'], ['/visualizations.js', 'visualizations.js'], ['/visualization-schema.js', 'visualization-schema.js'], ['/visualizations.css', 'visualizations.css'],
+        ['/private-beta.js', 'private-beta.js'], ['/private-beta', 'private-beta.html'], ['/voice.js', 'voice.js'], ['/voice-speech.js', 'voice-speech.js'], ['/voice.css', 'voice.css'], ['/visualizations.js', 'visualizations.js'], ['/visualization-schema.js', 'visualization-schema.js'], ['/visualizations.css', 'visualizations.css'],
         ['/noir-ui.css', 'noir-ui.css'], ['/app-design.css', 'app-design.css'],
         ['/', legacyApp ? 'index.html' : 'landing.html'], ['/app', 'index.html'], ['/index.html', 'index.html'], ['/landing.css', 'landing.css'], ['/landing.js', 'landing.js'], ['/noir-landscape.jpg', 'noir-landscape.jpg'], ['/styles.css', 'styles.css'], ['/script.js', 'script.js'], ['/browser.js', 'browser.js'], ['/owner-dashboard-client.js', 'owner-dashboard-client.js'], ['/logo.svg', 'logo.svg'], ['/logo.svg.png', 'logo.svg.png'], ['/robots.txt', 'robots.txt'], ['/sitemap.xml', 'sitemap.xml'],
       ]);
