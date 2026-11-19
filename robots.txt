@@ -1,11 +1,15 @@
 User-agent: *
 Allow: /
+Disallow: /app
+Disallow: /index.html
 Disallow: /api/
-Disallow: /account/
-Disallow: /accounts/
-Disallow: /chat/
-Disallow: /chats/
-Disallow: /settings/
+Disallow: /admin
+Disallow: /studio
+Disallow: /private-beta
+Disallow: /oauth/
+Disallow: /account
+Disallow: /chat
+Disallow: /settings
 Disallow: /*?
 
 Sitemap: https://noir-buhz.onrender.com/sitemap.xml
