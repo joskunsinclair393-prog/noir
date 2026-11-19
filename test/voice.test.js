@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSpeechController, spokenText } from '../voice-speech.js';
+import { createSpeechController, spokenText, chooseVoice, speechChunks, clampVoicePosition } from '../voice-speech.js';
 function setup() {
  const states=[],texts=[],utterances=[]; let mic,aborted=0,cancelled=0;
  class Recognition { constructor(){mic=this;} start(){this.onstart?.();} abort(){aborted++;} }
@@ -26,4 +26,21 @@ test('spoken replies select actual browser voices, stop listening and cancel pen
 test('speech omits executable code, diagram JSON and markup and bounds output',()=>{
  assert.equal(spokenText('Hello [NOIR](https://example.com). ```noir-viz\n{"secret":"skip"}\n```').includes('secret'),false);
  assert.ok(spokenText('a'.repeat(20000)).length<=12000);
+});
+
+test('speech finalization produces one real turn and mute never submits an aborted turn',()=>{
+ const turns=[];let mic;
+ class Recognition{constructor(){mic=this;}start(){}abort(){}}
+ const c=createSpeechController({SpeechRecognition:Recognition},{onTurn:text=>turns.push(text)});
+ c.listen();mic.onresult({results:[[{transcript:'A complete thought'}]]});mic.onend();assert.deepEqual(turns,['A complete thought']);
+ c.listen();mic.onresult({results:[[{transcript:'Do not submit this'}]]});c.stopListening();assert.equal(mic.onend,null);assert.equal(turns.length,1);
+});
+
+test('best available voice prefers enhanced voices in the user language and honors explicit selection',()=>{
+ const voices=[{voiceURI:'novelty',name:'Bad News',lang:'en-US',default:true},{voiceURI:'basic',name:'Karen',lang:'en-AU'},{voiceURI:'enhanced',name:'Samantha Enhanced',lang:'en-US'},{voiceURI:'other',name:'Natural',lang:'de-DE'}];
+ assert.equal(chooseVoice(voices,'','en-AU').voiceURI,'enhanced');assert.equal(chooseVoice(voices,'basic','en-AU').voiceURI,'basic');assert.equal(chooseVoice([],null),undefined);
+});
+test('speech retains sentence flow while bubble positions stay within small screens',()=>{
+ assert.deepEqual(speechChunks('One sentence. Another sentence.'),['One sentence. Another sentence.']);
+ const p=clampVoicePosition(900,900,390,600);assert.ok(p.x<=314);assert.ok(p.y<=504);assert.deepEqual(clampVoicePosition(-200,NaN,390,600),{x:12,y:12});
 });

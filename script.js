@@ -1445,6 +1445,7 @@
       return;
     }
     sending = true;
+    voice?.processing();
     workspace?.busy(true);
     modelChoice.disabled = true;
     $('send').disabled = true;
@@ -1565,7 +1566,7 @@
       input.disabled = false;
       if (!options.regenerate) input.value = failed ? value : '';
       resize();
-      if (!options.regenerate && !document.querySelector('.noir-voice[open]') && $('limitBackdrop').hidden) input.focus({ preventScroll: true });
+      if (!options.regenerate && !voice?.isActive() && $('limitBackdrop').hidden) input.focus({ preventScroll: true });
     }
   }
 
