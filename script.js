@@ -500,7 +500,7 @@
         else if (help && availability?.reason === 'missing_credentials') help.textContent = 'Search provider credentials are required';
         else if (help && availability?.reason === 'disabled_by_owner') help.textContent = 'Disabled by the site owner';
       } else if (!selectedIntegrations.has(button.dataset.type + ':' + button.dataset.name)) {
-        state.textContent = 'Add';
+        state.textContent = button.dataset.name === 'Study' ? 'Enable' : 'Add';
       }
     });
   }
@@ -882,7 +882,11 @@
       chip.className = 'attachment-chip integration-chip';
       const icon = document.createElement('span');
       icon.className = 'file-icon';
-      icon.textContent = item.type === 'Plugin' ? '✳' : '↗';
+      if (item.name === 'Study') {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('width', '16'); svg.setAttribute('height', '16'); svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.5'); svg.setAttribute('aria-hidden', 'true');
+        const path = document.createElementNS(svg.namespaceURI, 'path'); path.setAttribute('d', 'm2 9 10-5 10 5-10 5Z M6 11v6c4 3 8 3 12 0v-6 M22 9v7'); svg.append(path); icon.append(svg);
+      } else icon.textContent = item.type === 'Plugin' ? '✳' : '↗';
       const name = document.createElement('span');
       name.className = 'file-name';
       name.textContent = item.name;
@@ -902,18 +906,21 @@
   function syncIntegrationOptions() {
     document.querySelectorAll('.integration-option').forEach(button => {
       if (button.dataset.type === 'Connector') return;
+      if (button.disabled) return;
       const key = button.dataset.type + ':' + button.dataset.name;
       const active = selectedIntegrations.has(key);
       button.setAttribute('aria-checked', String(active));
       button.classList.toggle('is-added', active);
-      button.querySelector('.option-state').textContent = active ? 'Added' : (button.dataset.type === 'Connector' ? 'Connect' : 'Add');
+      button.querySelector('.option-state').textContent = active ? (button.dataset.name === 'Study' ? 'Enabled' : 'Added') : (button.dataset.name === 'Study' ? 'Enable' : button.dataset.type === 'Connector' ? 'Connect' : 'Add');
     });
   }
 
   function clearDraft() {
     input.value = '';
     pickedFiles.length = 0;
+    const study = selectedIntegrations.get('Plugin:Study');
     selectedIntegrations.clear();
+    if (study) selectedIntegrations.set('Plugin:Study', study);
     syncIntegrationOptions();
     renderAttachments();
     resize();
@@ -1130,7 +1137,7 @@
     for (const file of element.files) {
       const extension = file.name.split('.').pop().toLowerCase();
       const allowed = new Set(['application/pdf', 'text/plain', 'text/csv', 'text/markdown', 'application/json', 'image/png', 'image/jpeg', 'image/webp']);
-      const accepted = allowed.has(file.type) || /\.(pdf|txt|csv|md|markdown|json|png|jpe?g|webp)$/i.test(file.name);
+      const accepted = allowed.has(file.type) || /\.(pdf|docx|txt|csv|md|markdown|json|png|jpe?g|webp)$/i.test(file.name);
       if (!accepted) { showNotice(`“${file.name}” is not a supported file type.`); continue; }
       if (file.size < 1 || file.size > (integrationsInfo?.fileLimits?.maxFileBytes || 3 * 1024 * 1024)) { showNotice(`Each file must be smaller than 3 MB: “${file.name}”.`); continue; }
       if (pickedFiles.some(item => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified)) continue;
@@ -1138,6 +1145,10 @@
       if (pickedFiles.length >= (integrationsInfo?.fileLimits?.maxFiles || 4) || existingBytes + file.size > (integrationsInfo?.fileLimits?.maxTotalBytes || 5 * 1024 * 1024)) { showNotice('Attach up to 4 files totaling 5 MB or less per message.'); continue; }
       if (!file.type && !extension) { showNotice(`“${file.name}” is missing a supported file type.`); continue; }
       pickedFiles.push(file);
+    }
+    if (pickedFiles.some(file => /\.docx$/i.test(file.name)) && !selectedIntegrations.has('Plugin:Study')) {
+      const studyButton = document.querySelector('[data-name="Study"]');
+      if (studyButton && !studyButton.disabled) { selectedIntegrations.set('Plugin:Study', { type: 'Plugin', name: 'Study' }); syncIntegrationOptions(); }
     }
     renderAttachments();
     element.value = '';
@@ -1482,7 +1493,7 @@
       }
       const encodedAttachments = await Promise.all(pickedFiles.map(async file => ({
         name: file.name,
-        mimeType: file.type || ({ pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', md: 'text/markdown', markdown: 'text/markdown', json: 'application/json', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }[file.name.split('.').pop().toLowerCase()] || ''),
+        mimeType: /\.docx$/i.test(file.name) ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : file.type || ({ pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', txt: 'text/plain', csv: 'text/csv', md: 'text/markdown', markdown: 'text/markdown', json: 'application/json', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }[file.name.split('.').pop().toLowerCase()] || ''),
         data: (await fileToDataUrl(file)).split(',')[1] || '',
       })));
       const pluginNames = [...selectedIntegrations.values()].filter(item => item.type === 'Plugin').map(item => item.name);

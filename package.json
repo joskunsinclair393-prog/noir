@@ -5,11 +5,14 @@
   "type": "module",
   "description": "NOIR AI browser assistant",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test"
+  },
+  "dependencies": {
+    "unpdf": "1.9.1"
   }
 }
