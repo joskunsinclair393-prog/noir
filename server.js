@@ -909,6 +909,7 @@ export function createNoirServer(options = {}) {
       instructions: [baseInstructions, ...modeInstructions, preferences].filter(Boolean).join('\n\n'),
       maxOutputTokens: outputTokenLimit,
       reasoningEffort: config.reasoningEffort,
+      nativeUI: visualizations && Boolean(visualizationHint(messages,timeZone)),
       fetchImpl: signal ? (url, init) => (options.fetchImpl || fetch)(url, { ...init, signal, redirect: 'error' }) : options.fetchImpl || fetch,
     };
     // A trusted in-process test provider is never supplied by HTTP clients.

@@ -126,7 +126,12 @@ export function sanitizeVisualizations(reply) {
       if (!closing) fail('The model returned an incomplete visualization. Try a smaller diagram.');
       if (++count>3||json.length>24000) fail('Visualization size limit exceeded.');
       return '```noir-viz\n'+JSON.stringify(validateVisualization(JSON.parse(json)))+'\n```';
-    } catch(error) { return 'Visualization unavailable: '+(error instanceof SyntaxError?'The model returned incomplete visualization data.':error.message); }
+    } catch(error) {
+      // Preserve a bounded, inert text fallback instead of silently destroying
+      // the failed data. This also makes malformed provider output diagnosable.
+      return 'Visualization unavailable: '+(error instanceof SyntaxError?'The model returned incomplete visualization data.':error.message)+
+        '\n```text\n'+json.slice(0,2000).replace(/`/g,'\u02cb')+'\n```';
+    }
   });
 }
 export function visualizationHint(messages,timeZone='UTC') {
