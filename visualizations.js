@@ -1,4 +1,4 @@
-import { validateVisualization, sampleFunction, CALCULATORS, calculate, clockValues } from './visualization-schema.js';
+import { validateVisualization, sampleFunction, CALCULATORS, calculate, clockValues, VISUAL_TYPES } from './visualization-schema.js';
 const NS='http://www.w3.org/2000/svg';
 let sequence=0;
 const node=(tag,attributes={},content)=>{const element=document.createElement(tag);for(const [key,value] of Object.entries(attributes))element.setAttribute(key,String(value));if(content!=null)element.textContent=String(content);return element;};
@@ -123,4 +123,22 @@ export function createVisualization(input,expanded=false){
   toolbar.append(status);card.append(toolbar);return card;
 }
 function saveBlob(blob,name){const url=URL.createObjectURL(blob),link=node('a',{href:url,download:name.replace(/[^a-zA-Z0-9._ -]/g,'').slice(0,100)||'noir-visualization'});document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);}
-export function renderVisualizations(bubble){let count=0;for(const block of bubble.querySelectorAll('.code-block')){if(block.querySelector('.code-toolbar span')?.textContent!=='noir-viz')continue;try{if(++count>3)throw Error('Only three visualizations can be rendered per answer.');const raw=block.querySelector('code').textContent;if(raw.length>24000)throw Error('Visualization is too large.');block.replaceWith(createVisualization(JSON.parse(raw)));}catch(error){const warning=node('p',{class:'viz-error',role:'status'},'Visualization could not be displayed: '+(error instanceof SyntaxError?'Invalid or incomplete JSON.':error.message));block.before(warning);}}}
+export function renderVisualizations(bubble){
+  let count=0;
+  for(const block of bubble.querySelectorAll('.code-block')){
+    const language=block.querySelector('.code-toolbar span')?.textContent.trim().toLowerCase();
+    if(!['noir-viz','noir-ui','json'].includes(language))continue;
+    const raw=block.querySelector('code')?.textContent||'';
+    let spec;
+    if(language==='json'){
+      try{spec=JSON.parse(raw);if(spec?.version!==1||!VISUAL_TYPES.includes(spec?.type))continue;}catch{continue;}
+    }
+    try{
+      if(++count>3)throw Error('Only three visualizations can be rendered per answer.');
+      if(raw.length>24000)throw Error('Visualization is too large.');
+      block.replaceWith(createVisualization(spec||JSON.parse(raw)));
+    }catch(error){
+      const warning=node('p',{class:'viz-error',role:'status'},'Visualization could not be displayed: '+(error instanceof SyntaxError?'Invalid or incomplete JSON.':error.message));block.before(warning);
+    }
+  }
+}

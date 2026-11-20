@@ -116,13 +116,50 @@ export function sampleFunction(spec) {
 }
 export function sanitizeVisualizations(reply) {
   let count=0;
-  return String(reply).replace(/```noir-viz\s*\n([\s\S]*?)(```|$)/g,(_block,json,closing)=>{
+  return String(reply).replace(/```(noir-viz|noir-ui|json)[ \t]*\r?\n([\s\S]*?)(```|$)/gi,(_block,language,json,closing)=>{
+    // Some models use a JSON fence despite the instruction. Accept only the
+    // exact native schema; ordinary code examples remain ordinary code.
+    if(language.toLowerCase()==='json'){
+      try{const value=JSON.parse(json);if(value?.version!==1||!VISUAL_TYPES.includes(value?.type))return _block;}catch{return _block;}
+    }
     try {
       if (!closing) fail('The model returned an incomplete visualization. Try a smaller diagram.');
       if (++count>3||json.length>24000) fail('Visualization size limit exceeded.');
       return '```noir-viz\n'+JSON.stringify(validateVisualization(JSON.parse(json)))+'\n```';
     } catch(error) { return 'Visualization unavailable: '+(error instanceof SyntaxError?'The model returned incomplete visualization data.':error.message); }
   });
+}
+export function visualizationHint(messages,timeZone='UTC') {
+  const prompt=messages.at(-1)?.text?.split('\n\nStudy materials')[0]||'';
+  let type;
+  if(/\b(weather|forecast|temperature)\b/i.test(prompt))type='cards';
+  else if(/\b(clock|time zone|timezone|time in|current time|what.?s? the time|what time|time is it)\b/i.test(prompt))type='clock';
+  else if(/\bpie chart\b/i.test(prompt))type='pie';
+  else if(/\bbar (?:chart|graph)\b/i.test(prompt))type='bar';
+  else if(/\bline (?:chart|graph)\b/i.test(prompt))type='line';
+  else if(/\b(calculat\w*|percent\w*|compound interest|split.{0,15}bill|tip)\b|\d\s*%/i.test(prompt))type='calculator';
+  else if(/\b(pie|proportion|share of|breakdown)\b/i.test(prompt)&&/\d/.test(prompt))type='pie';
+  else if(/\b(compare|comparison|versus|vs\.?|difference between)\b/i.test(prompt))type='comparison';
+  else if(/\b(bar chart|bar graph)\b/i.test(prompt))type='bar';
+  else if(/\b(line chart|line graph|trend|monthly|growth|sales)\b/i.test(prompt)&&/\d/.test(prompt))type='line';
+  else if(/\b(chart|graph|plot)\b/i.test(prompt))type='bar';
+  else if(/\b(mind ?map)\b/i.test(prompt))type='mindmap';
+  else if(/\btimeline\b/i.test(prompt))type='timeline';
+  else if(/\bdecision tree\b/i.test(prompt))type='decision-tree';
+  else if(/\barchitecture\b/i.test(prompt))type='architecture';
+  else if(/\b(flowchart|flow chart|diagram|process|workflow|how.{0,40}works?|steps to|step.by.step)\b/i.test(prompt))type='flowchart';
+  else if(/\b(key facts|key points|information cards|summarize.{0,30}options)\b/i.test(prompt))type='cards';
+  if(!type)return '';
+  const base={version:1,type,title:'Short title',dataStatus:'conceptual'};
+  const example=type==='clock'?{...base,dataStatus:'live',zones:[{label:'Your time zone',timeZone}]}:
+    type==='calculator'?{...base,dataStatus:'illustrative',operation:'percentage',values:[100,10]}:
+    type==='comparison'?{...base,columns:['Attribute','Option A','Option B'],rows:[['Approach','First description','Second description']]}:
+    type==='cards'?{...base,items:[{label:'Key point',text:'Grounded description'}]}:
+    ['flowchart','mindmap','timeline','decision-tree','architecture'].includes(type)?{...base,nodes:[{id:'a',label:'First step'},{id:'b',label:'Next step'}],edges:[{from:'a',to:'b'}]}:
+    {...base,dataStatus:'illustrative',labels:['Category A','Category B'],series:[{name:'Value',values:[1,2]}]};
+  return `For this request prefer one native ${type} component, automatically, rather than offering to create one later. Put the complete fenced noir-viz JSON block BEFORE a brief explanation so it fits the response budget. Use the exact schema, not Python, Mermaid, ASCII art or a Markdown table. Keep it compact (at most 10 points/nodes unless essential). Adapt labels, values and provenance to the user's actual request; NEVER copy example data or invent missing statistics. If the required data is absent, ask for it instead. Schema example only: \n\`\`\`noir-viz\n${JSON.stringify(example)}\n\`\`\`\n`+
+    (type==='clock'?`The user's default time zone is ${timeZone}; use requested cities when specified. The UI CAN read live device time, so do not say it cannot show a clock.`:'')+
+    (/\b(weather|forecast|temperature)\b/i.test(prompt)?' No live weather tool is configured. You may show cards ONLY for weather observations supplied by the user or retrieved by an authorized tool, clearly labelled with source and observation time. Otherwise explain that live weather is unavailable; never invent a forecast.':'');
 }
 export function wantsVisualization(messages) {
   const last=messages.at(-1)?.text||'';

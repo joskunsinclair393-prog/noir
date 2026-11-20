@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { validateVisualization, sampleFunction, sanitizeVisualizations, wantsVisualization, calculate, clockValues } from '../visualization-schema.js';
+import { validateVisualization, sampleFunction, sanitizeVisualizations, wantsVisualization, calculate, clockValues, visualizationHint } from '../visualization-schema.js';
 import { createNoirServer } from '../server.js';
 const base={version:1,title:'Example',dataStatus:'illustrative'};
 const chart={...base,type:'line',labels:['Jan','Feb'],series:[{name:'Visits',values:[10,20]}]};
@@ -87,4 +87,17 @@ test('information cards are bounded plain text and reject executable component t
  assert.throws(()=>validateVisualization({...spec,items:[{label:'Long',text:'x'.repeat(1001)}]}));
  const response=sanitizeVisualizations('Text answer stays.\n```noir-viz\n'+JSON.stringify({...spec,type:'javascript'})+'\n```');
  assert.match(response,/Text answer stays/);assert.match(response,/Visualization unavailable/);
+});
+
+test('realistic prompts get automatic native component guidance without requiring UI keywords',()=>{
+ const cases=[['What is the time in Sydney and London?','clock'],['I sold 10 books in January, 18 in February and 15 in March. Help me understand the trend.','line'],['Compare train and car travel to work.','comparison'],['My bill is 80 dollars. What is a 15% tip?','calculator'],['Explain how the login process works.','flowchart'],['Our budget is 50 rent, 30 food and 20 travel. Show the pie breakdown.','pie'],['Show a bar chart of apples 4 and pears 6.','bar'],['Explain these key points','cards'],['Make a mind map of my study plan','mindmap']];
+ for(const [prompt,type]of cases){const hint=visualizationHint([{role:'user',text:prompt}],'Australia/Sydney');assert.match(hint,new RegExp('native '+type+' component'));assert.match(hint,/BEFORE a brief explanation/);const example=JSON.parse(hint.match(/```noir-viz\n([^\n]+)/)[1]);assert.equal(validateVisualization(example).type,type);}
+ assert.equal(visualizationHint([{role:'user',text:'Hi there'}]),'');
+ assert.match(visualizationHint([{role:'user',text:'What is the weather in Sydney?'}]),/No live weather tool is configured/);
+});
+test('alternate fences canonicalize only validated native schemas and preserve ordinary JSON code',()=>{
+ for(const language of ['json','NOIR-VIZ','noir-ui']){const reply=sanitizeVisualizations('Explanation\n```'+language+'\n'+JSON.stringify(chart)+'\n```');assert.match(reply,/```noir-viz/);assert.match(reply,/Explanation/);}
+ const plain='```json\n{"hello":"world"}\n```';assert.equal(sanitizeVisualizations(plain),plain);
+ assert.match(sanitizeVisualizations('```json\n'+JSON.stringify({...chart,labels:[]})+'\n```'),/Visualization unavailable/);
+ assert.match(sanitizeVisualizations('Readable text\n```noir-viz\n'+JSON.stringify(chart).slice(0,-10)),/Readable text/);
 });
