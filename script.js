@@ -33,7 +33,6 @@
   if (!desktopBridge) document.body.classList.add('web-app');
   let voice;
   let workspace;
-  let studio;
   if (!desktopBridge) import('./voice.js').then(({ mountVoice }) => {
     voice = mountVoice({ input, send: text => send(text), cancel: () => $('stopLocalAI').click(),
       busy: () => sending || checkingModel, available: () => !app.hidden,
@@ -207,7 +206,7 @@
   function saveAuthSession(session, refreshing = false) {
     if (!refreshing) authGeneration++;
     if (!session && challengeDialog.open) challengeDialog.close();
-    if (!session) { cloudReply?.abort(); voice?.reset(); studio?.reset(); }
+    if (!session) { cloudReply?.abort(); voice?.reset(); }
     if (!session) { localHistory = []; localHistoryKey = undefined; localStatusRequest++; if ($('connectorManager')) { $('connectorManager').hidden = true; $('connectorManagerOutput').textContent = ''; } document.body.classList.remove('desktop-chat-ready'); browserWorkspace?.reset(); if (desktopBridge) attachDesktopPage(undefined); }
     authSession = session;
     try { session ? localStorage.setItem(authStorageKey, JSON.stringify(session)) : localStorage.removeItem(authStorageKey); } catch {}
@@ -1015,11 +1014,6 @@
       verify.type = 'button';
       verify.onclick = () => void verifyAnswer(text, originalPrompt);
       actions.append(copy, regenerate, challenge, verify);
-      if (!desktopBridge) {
-        const saveToStudio = document.createElement('button'); saveToStudio.type = 'button'; saveToStudio.textContent = 'Save to Studio';
-        saveToStudio.onclick = () => studio ? studio.importText(text).catch(error => showNotice(error.message)) : showNotice('Studio is loading. Please try again.');
-        actions.append(saveToStudio);
-      }
       row.append(actions);
       if (model) {
         const attribution = challengeItem('small', 'Powered by ' + model);
@@ -1076,7 +1070,6 @@
   }
 
   async function openChat(id) {
-    studio?.hide();
     browserWorkspace?.showAssistant();
     if (sending || id === activeChatId) return;
     try {
@@ -1107,7 +1100,6 @@
   }
 
   function startNewChat(focus = true) {
-    studio?.hide();
     browserWorkspace?.showAssistant();
     if (sending) return;
     if (desktopPage) attachDesktopPage(undefined);
@@ -1304,23 +1296,8 @@
         if (!message?.trim()) return;
         if (!window.confirm('Send this feedback to the NOIR owner? It is linked to your account for abuse prevention.')) return;
         api('/api/feedback', { method: 'POST', body: JSON.stringify({ category: /^bug[:\s]/i.test(message) ? 'bug' : 'feedback', message, consent: true }) }).then(() => showNotice('Feedback sent. Thank you.')).catch(error => showNotice(error.message));
-      }, openStudio: show => {
-        if (show && studio) studio.show();
-        else if (show) showNotice('Studio is still loading. Please try again.');
-        else { studio?.hide(); $('assistantView').hidden = false; }
       } });
     }).catch(() => showNotice('Workspace controls could not load. Refresh to retry.'));
-    import('./studio.js').then(({ mountStudio }) => {
-      studio = mountStudio({ api, available: () => !app.hidden, model: () => ['free-cloud','smart-route'].includes(modelChoice.value) ? modelChoice.value : 'auto', responseMode: () => workspace?.mode() || 'instant',
-        openVoice: (send, cancel, initial) => voice?.open(send, cancel, initial), voiceReply: text => voice?.reply(text), voiceError: text => voice?.error(text),
-        onChat: ({ chat, session }) => { updateChatSummary(chat); updateSession(session); }, chatView: $('assistantView') });
-      const checkInvitation = () => {
-        const token = new URL(location.href).searchParams.get('studioInvite');
-        if (!app.hidden && new URL(location.href).searchParams.get('workspace') === 'studio') { const url = new URL(location.href); url.searchParams.delete('workspace'); history.replaceState(null, '', url); void studio.show(); }
-        if (token && !app.hidden) { const url = new URL(location.href); url.searchParams.delete('studioInvite'); history.replaceState(null, '', url); studio.accept(token).catch(error => showNotice(error.message)); }
-      };
-      new MutationObserver(checkInvitation).observe(app, { attributes: true, attributeFilter: ['hidden'] }); checkInvitation();
-    }).catch(() => showNotice('Studio could not load. Refresh to retry.'));
     $('workspaceNav').hidden = false;
     $('welcomeTools').hidden = false;
     document.querySelector('.brand span').textContent = 'NOIR.';
@@ -1359,7 +1336,7 @@
         if (expanded) { setSidebar(true); $('projectFilter').focus({ preventScroll: true }); }
         return;
       }
-      if (action === 'chat') { studio?.hide(); $('assistantView').hidden = false; browserWorkspace?.showAssistant(); input.focus({ preventScroll: true }); }
+      if (action === 'chat') { $('assistantView').hidden = false; browserWorkspace?.showAssistant(); input.focus({ preventScroll: true }); }
       if (action === 'settings' || action === 'models') {
         openSettings('general');
         if (action === 'models') modelChoice.focus({ preventScroll: true });

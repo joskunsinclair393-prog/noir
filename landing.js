@@ -1,6 +1,5 @@
 (() => {
-  const sampleEditor = document.getElementById('studioDemoInput');
-  sampleEditor?.addEventListener('input', () => { document.getElementById('studioDemoPreview').textContent = sampleEditor.value; });
+  if (/^#\/?studio(?:\/|$|\?)/i.test(location.hash)) { location.replace('/app'); return; }
   const locationState = new URLSearchParams(location.search);
   if (location.pathname === '/' && (['code', 'error', 'error_description', 'settings', 'connector', 'plus'].some(key => locationState.has(key)) ||
       /^#(?:access_token|error|error_code)=/.test(location.hash))) {
