@@ -2,7 +2,7 @@ import { DOCX_TYPE, STUDY_INSTRUCTIONS, extractStudyFiles, studyContext } from '
 import { validateStudioData } from './studio-model.js';
 import { responseMode, createReasoningResolver } from './response-modes.js';
 import { betaAdmin, betaForm, parseBetaApplication, parseBetaReview } from './beta-applications.js';
-import { VISUALIZATION_INSTRUCTIONS, wantsVisualization, sanitizeVisualizations } from './visualization-schema.js';
+import { VISUALIZATION_INSTRUCTIONS, sanitizeVisualizations } from './visualization-schema.js';
 import { generateFreeCloud } from './free-cloud.js';
 import { ownerDashboard } from './owner-dashboard.js';
 import { createGitHubConnector, createGoogleConnectors } from './google-connectors.js';
@@ -1689,7 +1689,7 @@ export function createNoirServer(options = {}) {
             let outputBudget = config.maxOutputTokens;
             if (Number.isFinite(remainingTokens)) {
               const instructions = `You are NOIR, a helpful, thoughtful AI assistant. Give accurate, clear answers with natural conversation. If you are unsure, say so. Use concise structure when it helps. The current date in the user's local timezone (${timeZone}) is `;
-              const estimatedInputTokens = Math.ceil((instructions.length + preferences.length + (!desktopContext && body.visualizations === 1 && wantsVisualization(history) ? VISUALIZATION_INSTRUCTIONS.length : 0) + history.reduce((count, item) => count + item.text.length, 0)) / 3) + history.length * 2;
+              const estimatedInputTokens = Math.ceil((instructions.length + preferences.length + (!desktopContext && body.visualizations === 1 ? VISUALIZATION_INSTRUCTIONS.length : 0) + history.reduce((count, item) => count + item.text.length, 0)) / 3) + history.length * 2;
               outputBudget = Math.min(config.maxOutputTokens, remainingTokens - estimatedInputTokens);
               if (outputBudget < 1) {
                 const date = new Date(`${daily.date}T00:00:00.000Z`); date.setUTCDate(date.getUTCDate() + 1);
@@ -1760,7 +1760,7 @@ export function createNoirServer(options = {}) {
               const category = smartRoute && (categories.find(([, pattern]) => pattern.test(message))?.[0] || 'general');
               generated = await generate(providerHistory, timeZone, outputBudget, signal, routingUser, freeSelected, onText,
                 project?.instructions || data.personalization ? preferences : '', category ? smartFreeModels[category] : undefined,
-                !desktopContext && body.visualizations === 1 && wantsVisualization(history), selectedResponseMode);
+                !desktopContext && body.visualizations === 1, selectedResponseMode);
               signal.throwIfAborted();
               usage = normalizedUsage(generated?.usage || {});
               if (typeof generated?.text !== 'string' || !generated.text.trim() || (!usage.inputTokens && !usage.outputTokens)) {

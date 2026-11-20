@@ -1,11 +1,34 @@
-import { validateVisualization, sampleFunction } from './visualization-schema.js';
+import { validateVisualization, sampleFunction, CALCULATORS, calculate, clockValues } from './visualization-schema.js';
 const NS='http://www.w3.org/2000/svg';
 let sequence=0;
 const node=(tag,attributes={},content)=>{const element=document.createElement(tag);for(const [key,value] of Object.entries(attributes))element.setAttribute(key,String(value));if(content!=null)element.textContent=String(content);return element;};
 const svgNode=(tag,attributes={},content)=>{const element=document.createElementNS(NS,tag);for(const [key,value] of Object.entries(attributes))element.setAttribute(key,String(value));if(content!=null)element.textContent=String(content);return element;};
 const format=value=>typeof value==='number'?new Intl.NumberFormat(undefined,{maximumSignificantDigits:5}).format(value):String(value??'');
 const defaultColors=['#dedee3','#9d9da6','#72727e','#4e4e5c'];
-const provenance={provided:'Conversation / supplied data · Not independently verified',illustrative:'Illustrative sample data · Not real statistics',conceptual:'Conceptual explanation · Check important details'};
+const provenance={provided:'Conversation / supplied data · Not independently verified',illustrative:'Illustrative sample data · Not real statistics',conceptual:'Conceptual explanation · Check important details',live:'Live device clock · Time zones and daylight saving applied'};
+// One shared timer, discarded automatically when no clock remains in the chat.
+const liveClocks=new Map();let clockTimer;
+function liveClock(spec){
+  const host=node('div',{class:'viz-clocks'});
+  const tiles=spec.zones.map(zone=>{const tile=node('section'),label=node('h5',{},zone.label),time=node('time'),date=node('p'),zoneName=node('small',{},zone.timeZone);tile.append(label,time,date,zoneName);host.append(tile);return {time,date};});
+  const update=()=>clockValues(spec).forEach((value,i)=>{tiles[i].time.textContent=value.time;tiles[i].time.dateTime=new Date().toISOString();tiles[i].date.textContent=value.date;});
+  update();liveClocks.set(host,update);
+  clockTimer??=setInterval(()=>{for(const [element,tick] of liveClocks){if(!element.isConnected)liveClocks.delete(element);else if(!document.hidden)tick();}if(!liveClocks.size){clearInterval(clockTimer);clockTimer=undefined;}},1000);
+  return host;
+}
+function calculator(spec){
+  const host=node('div',{class:'viz-calculator'}),inputs=node('div',{class:'viz-calculator-inputs'}),result=node('output',{'aria-live':'polite'}),definition=CALCULATORS[spec.operation];
+  const fields=definition.labels.map((label,i)=>{const wrapper=node('label',{},label),input=node('input',{type:'number',step:'any',inputmode:'decimal','aria-label':label});input.value=String(spec.values[i]);wrapper.append(input);inputs.append(wrapper);return input;});
+  const update=()=>{try{if(fields.some(input=>input.value.trim()===''||!input.validity.valid))throw Error('Enter a valid number in every field.');const value=calculate(spec.operation,fields.map(input=>Number(input.value)));result.textContent='Result: '+new Intl.NumberFormat(undefined,{maximumSignificantDigits:12}).format(value);result.classList.remove('viz-calculator-error');}catch(error){result.textContent=error.message;result.classList.add('viz-calculator-error');}};
+  fields.forEach(input=>input.addEventListener('input',update));update();
+  host.append(inputs,node('p',{class:'viz-formula'},definition.formula),result,button('Reset inputs',()=>{fields.forEach((input,i)=>input.value=String(spec.values[i]));update();}));return host;
+}
+function informationCards(spec){const host=node('div',{class:'viz-info-cards'});for(const item of spec.items){const tile=node('section');tile.append(node('h5',{},item.label),node('p',{},item.text));host.append(tile);}return host;}
+function textVersion(spec){
+  if(spec.type==='clock')return clockValues(spec).map(zone=>`${zone.label} (${zone.timeZone}): ${zone.time}, ${zone.date}`).join('\n');
+  if(spec.type==='cards')return spec.items.map(item=>`${item.label}: ${item.text}`).join('\n');
+  try{return `${CALCULATORS[spec.operation].formula}\nStarting values: ${spec.values.join(', ')}\nResult: ${calculate(spec.operation,spec.values)}`;}catch(error){return error.message;}
+}
 function button(label,action){const b=node('button',{type:'button'},label);b.onclick=action;return b;}
 function rootSVG(title,width=760,height=360){const svg=svgNode('svg',{viewBox:`0 0 ${width} ${height}`,role:'img','aria-label':title,tabindex:'0'});svg.append(svgNode('title',{},title));return svg;}
 function tooltip(target,label,frame){target.setAttribute('tabindex','0');target.setAttribute('role','img');target.setAttribute('aria-label',label);target.append(svgNode('title',{},label));
@@ -84,14 +107,18 @@ export function createVisualization(input,expanded=false){
   const spec=validateVisualization(input),card=node('figure',{class:'noir-visualization','data-viz-type':spec.type});
   const heading=node('header'),title=node('h4',{},spec.title),badge=node('small',{},provenance[spec.dataStatus]);heading.append(title,badge);card.append(heading);
   const frame=node('div',{class:'viz-frame'}),tip=node('div',{class:'viz-tooltip',role:'status',hidden:''});frame.append(tip);let svg;
-  if(['table','comparison'].includes(spec.type)){
+  if(spec.type==='clock'){frame.append(liveClock(spec));}
+  else if(spec.type==='calculator'){frame.append(calculator(spec));}
+  else if(spec.type==='cards'){frame.append(informationCards(spec));}
+  else if(['table','comparison'].includes(spec.type)){
     if(spec.type==='comparison'&&spec.columns.length>1){const cards=node('div',{class:'viz-comparison'});spec.columns.slice(1).forEach((name,i)=>{const option=node('section');option.append(node('h5',{},name));spec.rows.forEach(row=>option.append(node('strong',{},row[0]),node('p',{},row[i+1])));cards.append(option);});frame.append(cards);}else frame.append(dataTable(spec));
   }else{svg=['line','bar','pie','function'].includes(spec.type)?chart(spec,frame):graph(spec,frame);frame.prepend(svg);enableView(svg,frame);}
   card.append(frame);
   const caption=node('figcaption');if(spec.caption)caption.append(node('p',{},spec.caption));if(spec.source)caption.append(node('p',{},'Source / context: '+spec.source));card.append(caption);
+  if(['clock','calculator','cards'].includes(spec.type)){const fallback=node('details',{class:'viz-text-version'});fallback.append(node('summary',{},'Text version'));fallback.addEventListener('toggle',()=>{if(fallback.open){fallback.querySelector('p')?.remove();fallback.append(node('p',{},textVersion(spec)));}});card.append(fallback);}
   const toolbar=node('div',{class:'viz-toolbar'}),status=node('span',{role:'status'});
-  toolbar.append(button('Copy data',async()=>{try{if(!navigator.clipboard?.writeText)throw Error();await navigator.clipboard.writeText(JSON.stringify(spec,null,2));status.textContent='Data copied.';}catch{status.textContent='Clipboard unavailable. Use Download data.';}}),button('Download data',()=>saveBlob(new Blob([JSON.stringify(spec,null,2)],{type:'application/json'}),spec.title+'.json')),
-    button('Export SVG',()=>{const image=(svg||tableImage(spec)).cloneNode(true);image.setAttribute('viewBox',(svg||image).getAttribute('viewBox'));image.setAttribute('width','1200');image.setAttribute('height',String(1200*image.viewBox.baseVal.height/image.viewBox.baseVal.width));image.querySelectorAll('[tabindex]').forEach(n=>n.removeAttribute('tabindex'));const bg=svgNode('rect',{x:image.viewBox.baseVal.x,y:image.viewBox.baseVal.y,width:image.viewBox.baseVal.width,height:image.viewBox.baseVal.height,fill:'#131315'});image.insertBefore(bg,image.firstChild);saveBlob(new Blob([new XMLSerializer().serializeToString(image)],{type:'image/svg+xml'}),spec.title+'.svg');}));
+  toolbar.append(button('Copy data',async()=>{try{if(!navigator.clipboard?.writeText)throw Error();await navigator.clipboard.writeText(JSON.stringify(spec,null,2));status.textContent='Data copied.';}catch{status.textContent='Clipboard unavailable. Use Download data.';}}),button('Download data',()=>saveBlob(new Blob([JSON.stringify(spec,null,2)],{type:'application/json'}),spec.title+'.json')));
+  if(svg||spec.columns)toolbar.append(button('Export SVG',()=>{const image=(svg||tableImage(spec)).cloneNode(true);image.setAttribute('viewBox',(svg||image).getAttribute('viewBox'));image.setAttribute('width','1200');image.setAttribute('height',String(1200*image.viewBox.baseVal.height/image.viewBox.baseVal.width));image.querySelectorAll('[tabindex]').forEach(n=>n.removeAttribute('tabindex'));const bg=svgNode('rect',{x:image.viewBox.baseVal.x,y:image.viewBox.baseVal.y,width:image.viewBox.baseVal.width,height:image.viewBox.baseVal.height,fill:'#131315'});image.insertBefore(bg,image.firstChild);saveBlob(new Blob([new XMLSerializer().serializeToString(image)],{type:'image/svg+xml'}),spec.title+'.svg');}));
   if(!expanded)toolbar.append(button('Expand',()=>{const dialog=node('dialog',{class:'viz-dialog','aria-label':spec.title}),close=button('×',()=>dialog.close());close.setAttribute('aria-label','Close visualization');dialog.append(close,createVisualization(spec,true));dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();}));
   toolbar.append(status);card.append(toolbar);return card;
 }

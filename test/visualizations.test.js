@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { validateVisualization, sampleFunction, sanitizeVisualizations, wantsVisualization } from '../visualization-schema.js';
+import { validateVisualization, sampleFunction, sanitizeVisualizations, wantsVisualization, calculate, clockValues } from '../visualization-schema.js';
 import { createNoirServer } from '../server.js';
 const base={version:1,title:'Example',dataStatus:'illustrative'};
 const chart={...base,type:'line',labels:['Jan','Feb'],series:[{name:'Visits',values:[10,20]}]};
@@ -51,7 +51,7 @@ test('website chat passes the schema to free AI, streams, saves normalized diagr
     assert.match(instructions,/fenced noir-viz/);assert.match(result.chat.messages.at(-1).text,/```noir-viz/);
     const saved=await(await fetch(url+'/api/chats/'+result.chat.id,{headers:{cookie}})).json();assert.equal(saved.chat.messages.at(-1).text,result.chat.messages.at(-1).text);
     assert.equal((await fetch(url+'/api/chats/'+result.chat.id)).status,404);
-    await post({message:'Hello',visualizations:1});assert.doesNotMatch(instructions,/fenced noir-viz/);
+    await post({message:'Hello',visualizations:1});assert.match(instructions,/Use plain text for greetings/);assert.match(instructions,/clock:/);
     await post({message:'Draw a flowchart'});assert.doesNotMatch(instructions,/fenced noir-viz/);
     invalid=true;const error=await(await post({message:'Draw a chart',visualizations:1})).json();assert.match(error.chat.messages.at(-1).text,/Visualization unavailable/);
   }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));rmSync(folder,{recursive:true,force:true});}
@@ -60,4 +60,31 @@ test('website chat passes the schema to free AI, streams, saves normalized diagr
 test('Studio diagram styles accept bounded colors/layouts and reject CSS injection',()=>{
  const spec={version:1,type:'flowchart',title:'Process',dataStatus:'conceptual',nodes:[{id:'a',label:'Start'}],edges:[],layout:'vertical',colors:['#ffffff','#111111']};
  assert.deepEqual(validateVisualization(spec).colors,spec.colors);assert.equal(validateVisualization(spec).layout,'vertical');assert.throws(()=>validateVisualization({...spec,colors:['url(https://example.com)']}));assert.throws(()=>validateVisualization({...spec,layout:'execute'}));
+});
+
+test('native clocks validate time zones and compute real instants across date boundaries and DST',()=>{
+ const spec=validateVisualization({version:1,type:'clock',title:'World time',dataStatus:'live',zones:[{label:'Sydney',timeZone:'Australia/Sydney'},{label:'UTC',timeZone:'UTC'}],timestamp:'invented'});
+ assert.equal(spec.timestamp,undefined);
+ const values=clockValues(spec,new Date('2026-01-01T18:00:00Z'));
+ assert.match(values[0].date,/2/); assert.match(values[1].date,/1/);
+ assert.notEqual(clockValues(spec,new Date('2026-01-01T18:00:00Z'))[0].time,clockValues(spec,new Date('2026-01-01T18:00:01Z'))[0].time);
+ for(const timeZone of ['javascript:alert(1)','Not/AZone','<script>'])assert.throws(()=>validateVisualization({...spec,zones:[{label:'Bad',timeZone}]}));
+ assert.throws(()=>validateVisualization({...spec,dataStatus:'provided'}));
+ assert.throws(()=>validateVisualization({...chart,dataStatus:'live'}));
+});
+test('native calculators support only fixed operations with bounded numeric input and clear arithmetic errors',()=>{
+ for(const [operation,values,answer] of [['sum',[3,4],7],['difference',[3,4],-1],['product',[3,4],12],['quotient',[8,4],2],['percentage',[200,15],30],['compound-interest',[100,10,2],121]]){
+  const spec=validateVisualization({...base,type:'calculator',operation,values,expression:'globalThis.evil()'});
+  assert.equal(spec.expression,undefined); assert.ok(Math.abs(calculate(operation,values)-answer)<1e-9);
+ }
+ for(const [operation,values] of [['eval',[1,2]],['constructor',[1,2]],['quotient',[1,0]],['sum',[NaN,2]],['sum',[1e12,1e12]],['compound-interest',[100,10,-1]]])assert.throws(()=>calculate(operation,values));
+ assert.throws(()=>validateVisualization({...base,type:'calculator',operation:'sum',values:[1]}));
+});
+test('information cards are bounded plain text and reject executable component types',()=>{
+ const spec=validateVisualization({...base,type:'cards',items:[{label:'Key point',text:'<img src=x onerror=alert(1)>',onClick:'evil()'}]});
+ assert.equal(spec.items[0].onClick,undefined);assert.equal(spec.items[0].text,'<img src=x onerror=alert(1)>');
+ assert.throws(()=>validateVisualization({...spec,items:Array(9).fill(spec.items[0])}));
+ assert.throws(()=>validateVisualization({...spec,items:[{label:'Long',text:'x'.repeat(1001)}]}));
+ const response=sanitizeVisualizations('Text answer stays.\n```noir-viz\n'+JSON.stringify({...spec,type:'javascript'})+'\n```');
+ assert.match(response,/Text answer stays/);assert.match(response,/Visualization unavailable/);
 });
